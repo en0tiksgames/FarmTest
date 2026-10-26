@@ -1915,12 +1915,25 @@ async function init(){
 init().catch(e=>{console.error(e);const l=$('loading');if(l)l.innerHTML='<h1>Не удалось открыть ферму</h1><p class="small">'+h(e.message)+'</p>';});
 })();
 </script>
-  
+<div id="debug"></div>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script>
   const tg = window.Telegram.WebApp;
   tg.ready();
   tg.disableVerticalSwipes();
   tg.isClosingConfirmationEnabled = true;
+
+  const debug = document.getElementById('debug');
+  debug.style.position = 'absolute';
+  debug.style.top = '10px';
+  debug.style.left = '10px';
+  debug.style.background = 'rgba(0,0,0,.7)';
+  debug.style.color = '#fff';
+  debug.style.padding = '8px';
+  debug.style.fontFamily = 'monospace';
+  debug.innerText =
+    'tg.initData: ' + (tg.initData ? 'OK' : 'NO') + '\n' +
+    'Vertical swipes enabled: ' + tg.isVerticalSwipesEnabled + '\n' +
+    'Version: ' + tg.version;
 </script>
 </body></html>
