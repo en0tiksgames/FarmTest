@@ -1640,10 +1640,16 @@ const balance={spec,consume,get current(){return copy(current);},get active(){re
       const tail=fed?Math.sin(t*(lick?4:8))*.09:Math.sin(t*.7)*.008;
       stroke([[.78,.51,bodyZ],[.79+tail,.43,bodyZ+(fed?3:.2)],[.78+tail*1.5,.38,bodyZ+(fed?4.7:0)]],'#98633d',2.2,(()=>{const q=m.world([.78,.46,bodyZ]);return (q[0]+q[1])*24+bodyZ*.45;})());
       oval(.78,.66,bodyZ,.095,.18,fed?2.55:2,'#c69760');
-      oval(.82,.65,bodyZ+1.7,.052,.10,.7,'#b1814f');
       oval(.78,.81,fed?5.8:3,.087,.085,fed?2.8:1.8,'#e7c994');
       for(const x of [.715,.845]){
-        if(fed){oval(x,.61,2.3,.045,.075,1.8,'#af7948');oval(x,.70,.7,.035,.055,.7,'#d9b482');oval(x,.88,3+(x<.78?groom*.5:0),.026,.033,2.5-(x<.78?groom:0),'#c99a63');}
+        if(fed){
+          // Rear thigh joins the rump; the hock bends back into a small grounded paw.
+          oval(x,.575,3.8,.031,.042,1.3,'#c69760');
+          const q=m.world([x,.60,1.8]);
+          stroke([[x,.60,3.2],[x,.56,1.3],[x,.635,.65]],'#c69760',1.25,(q[0]+q[1])*24+1.8*.45);
+          oval(x,.655,.6,.028,.043,.6,'#d5af7b');
+          oval(x,.88,3+(x<.78?groom*.5:0),.026,.033,2.5-(x<.78?groom:0),'#c99a63');
+        }
         oval(x,fed?.92+(x<.78?.095*groom:0):1.005,.8+(fed&&x<.78?4.6*groom:0),.034,fed?.055:.085,.8,'#e8cfa2');
       }
       oval(.78,headY,headZ,.085,.09,2.25,'#d4ab73');
@@ -3097,6 +3103,7 @@ const balance={spec,consume,get current(){return copy(current);},get active(){re
     _status(c,b,pal){
       const d=G.FC.BUILDINGS[b.type]||{};if(d.category==='decoration')return;
       const w=b.w||d.w||1,h=b.h||d.h||1,p=pt(b.x+w/2,b.y+h/2,b.type==='plot'?14:b.type==='kennel'?35:68),out=Object.values(b.output||{}).reduce((a,n)=>a+(Number(n)||0),0),construction=(b.constructionUntil||0)>this._time,upgrade=b.upgrade&&b.upgrade.end>this._time;
+      if(b.type==='kennel')p.x-=15;
       let text='',color='#2d8d60',bar=null;
       if(construction||upgrade){text=upgrade?'↑':'⌁';color='#b48a31';const u=b.upgrade||{};bar=upgrade?clamp(1-(u.end-this._time)/Math.max(1,u.duration||u.seconds||20),0,1):null;}
       else if(b.plant){if(!b.plant.watered){text='💧';color='#489db2';}else if(b.plant.end<=this._time){text='✓';color='#60991b';}else{bar=clamp((this._time-b.plant.start)/Math.max(1,b.plant.end-b.plant.start),0,1);color=b.plant.watered?'#489db2':'#7faa43';}}
@@ -3105,7 +3112,7 @@ const balance={spec,consume,get current(){return copy(current);},get active(){re
       else if(b.queue?.length){const q=b.queue[0];bar=clamp((this._time-q.start)/Math.max(1,q.duration||q.end-q.start),0,1);text='';color='#8ea090';}
       if(text){round(c,p.x-10,p.y-10,20,20,8,color,'#faeec4dd');c.font='bold 12px system-ui';c.textAlign='center';c.fillStyle='#faeab9';if(b.type==='kennel'&&text==='🛡'){c.beginPath();c.moveTo(p.x-4.5,p.y-5);c.quadraticCurveTo(p.x,p.y-3,p.x+4.5,p.y-5);c.lineTo(p.x+4,p.y+1);c.quadraticCurveTo(p.x+3,p.y+4,p.x,p.y+6);c.quadraticCurveTo(p.x-3,p.y+4,p.x-4,p.y+1);c.closePath();c.strokeStyle='#faeab9';c.lineWidth=1.4;c.stroke();}else c.fillText(text,p.x,p.y+4);}
       else if(bar!==null){round(c,p.x-15,p.y+3,30,5,2.5,'#f8f0dcbf');if(bar>.01)round(c,p.x-14,p.y+4,28*bar,3,1.5,color);}
-      if((b.level||1)>1){const q=b.type==='kennel'?{x:p.x+22,y:p.y+16}:pt(b.x+w-.12,b.y+h*.8,5),label=G.FC.fmt?.(b.level)||String(b.level);c.font='700 8px system-ui';const width=Math.max(14,c.measureText(label).width+7);if(b.type==='kennel')q.x=p.x+15+width/2;round(c,q.x-width/2,q.y-7,width,14,5,pal.levelBg,pal.levelBorder);c.fillStyle=pal.levelInk;c.textAlign='center';c.fillText(label,q.x,q.y+3);}
+      if((b.level||1)>1){const q=b.type==='kennel'?{x:p.x+30,y:p.y}:pt(b.x+w-.12,b.y+h*.8,5),label=G.FC.fmt?.(b.level)||String(b.level);c.font='700 8px system-ui';const width=Math.max(14,c.measureText(label).width+7);if(b.type==='kennel')q.x=p.x+30+width/2;round(c,q.x-width/2,q.y-7,width,14,5,pal.levelBg,pal.levelBorder);c.fillStyle=pal.levelInk;c.textAlign='center';c.fillText(label,q.x,q.y+3);}
       if(construction){const base=pt(b.x+w*.5,b.y+h,3);line(c,[{x:base.x-20,y:base.y},{x:base.x+20,y:base.y}],'#f0c247',4);line(c,[{x:base.x-18,y:base.y-4},{x:base.x-14,y:base.y+4}],'#a18c36',3);line(c,[{x:base.x-3,y:base.y-4},{x:base.x+1,y:base.y+4}],'#a18c36',3);line(c,[{x:base.x+12,y:base.y-4},{x:base.x+16,y:base.y+4}],'#a18c36',3);}
     }
     _ghost(c,s){
