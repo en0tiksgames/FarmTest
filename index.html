@@ -4,6 +4,8 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- After deploying the backend, paste its HTTPS origin into this meta tag. -->
+<meta name="farm-social-api" content="">
 <meta name="theme-color" content="#254b3b">
 <meta name="description" content="Ферма: Луговая долина — автономная экономическая песочница с миром 15 × 15 участков.">
 <title>Ферма: Луговая долина</title>
@@ -329,6 +331,11 @@ html body .brand-sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .farm-name-editor .note{overflow-wrap:anywhere}
 @media(max-width:980px){html body .header>.brand{max-width:none;flex:initial}html body .brand-name{font-size:clamp(12px,3.5vw,20px)}}
 html body .app{height:var(--tg-viewport-stable-height,100%)}
+
+html body .float-open{gap:6px}
+@media(min-width:981px){html body .float-open{display:flex;right:22px;top:99px}html body .float-open [data-action="showPanel"]{display:none}}
+html body.visiting .mode-bar{display:none}html body.visiting .hud{display:flex!important;justify-content:center;align-items:center}.visit-hud{width:100%}
+.farm-top-name{min-width:0;overflow-wrap:anywhere;flex:1}.farm-rank{flex-shrink:0}.land-visit-list{display:flex;flex-wrap:wrap;gap:5px}.visit-hud{display:flex;flex-direction:column;min-width:0;text-align:center;gap:4px}.visit-hud b{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:100%}.visit-banner{position:absolute;left:12px;right:12px;bottom:82px;z-index:4;background:var(--paper);border:2px solid var(--wood-edge);border-radius:9px;padding:9px 11px;display:flex;align-items:center;justify-content:space-between;gap:8px;box-shadow:var(--shadow)}.visit-banner span{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.visit-banner button{flex-shrink:0}
 </style>
 </head>
 <body>
@@ -344,8 +351,9 @@ html body .app{height:var(--tg-viewport-stable-height,100%)}
       <canvas id="world" tabindex="0" aria-label="Ферма. Нажмите на объект для действий. Перетаскивание перемещает карту."></canvas>
       <div class="stage-top"><div class="world-heading"><div class="caps muted" style="font-size:8px;margin-bottom:5px">Ваша история начинается здесь</div><h2 id="landTitle">Домашний луг</h2><div class="small muted" id="landSubtitle">Участок 0 · 0 — плодородное начало</div></div><div class="weather row" id="weather"></div></div>
       <div id="saveWarning" class="save-warning hide"></div>
-      <div class="float-open"><button class="tool-pill" data-action="showPanel">🌿 Дневник</button></div>
+      <div class="float-open"><button class="tool-pill" data-action="showPanel">🌿 Дневник</button><button class="tool-pill" data-action="leaderboard">🏆 Топ</button></div>
       <div class="stage-controls"><button data-action="zoom" data-p='{"factor":1.2}' title="Приблизить" aria-label="Приблизить">+</button><button data-action="home" title="К дому" aria-label="К дому">⌂</button><button data-action="zoom" data-p='{"factor":0.833333}' title="Отдалить" aria-label="Отдалить">−</button></div>
+      <div id="visitBanner" class="visit-banner hide"><span>В гостях: <b id="visitName"></b></span><button class="btn secondary sm" data-action="leaveVisit">На свою ферму</button></div>
       <div id="placementBar" class="placement-bar hide"></div>
       <div class="mode-bar"><button id="arrangeBtn" class="tool-pill" data-action="arrange"></button><button class="tool-pill" data-action="harvestAll">🌾 Собрать всё</button><div class="map-help" id="mapHelp">Нажмите на грядку, чтобы посадить.<br>Перетаскивайте карту, чтобы осмотреться.</div></div>
       <div id="pauseVeil" class="pause-veil hide"><div class="pause-card"><div style="font-size:33px">☕</div><h2>Ферма отдыхает</h2><p class="small muted">Все таймеры остановлены.<br>Можно продолжить в любой момент.</p><button class="btn" data-action="pause">Вернуться на ферму</button></div></div>
@@ -2917,6 +2925,29 @@ root.FarmSaves={...browser,open,load,save,replace:save,flush:()=>queue,get error
 
 </script>
 <script>
+/* Public farm directory: private game saves remain in Telegram CloudStorage. */
+(function(root){
+'use strict';
+const api=(document.querySelector('meta[name="farm-social-api"]')?.content||'').replace(/\/$/,'');
+const telegram=()=>root.Telegram?.WebApp;let provider=null,notify=()=>{},lastPublished=0,lastBody='',pending=null,timer=null,running=null;
+function available(){if(!api)throw new Error('Общий топ ещё не подключён к серверу. Сама ферма и облачные сохранения работают.');if(!telegram()?.initData)throw new Error('Откройте игру через Telegram, чтобы войти в общий топ.');}
+async function request(path,options={}){available();const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),20000);try{const response=await fetch(api+path,{...options,headers:{'Authorization':'tma '+telegram().initData,...(options.body?{'Content-Type':'application/json'}:{})},signal:controller.signal,referrerPolicy:'no-referrer'});let data;try{data=await response.json();}catch(_){throw new Error('Сервер топа вернул неверный ответ.');}if(!response.ok)throw new Error(data.error||'Топ временно недоступен.');return data;}catch(e){if(e.name==='AbortError')throw new Error('Сервер топа не отвечает. Попробуйте позже.');throw e;}finally{clearTimeout(timeout);}}
+function project(s){const lands={};for(const [key,l]of Object.entries(s.lands||{}))if(FC.inWorld(l.cx,l.cy))lands[key]={cx:l.cx,cy:l.cy,cleared:[...(l.cleared||[])],forageAt:0};
+const buildings=(s.buildings||[]).filter(b=>FC.inWorld(Math.floor(b.x/16),Math.floor(b.y/16))&&FC.inWorld(Math.floor((b.x+b.w-1)/16),Math.floor((b.y+b.h-1)/16))).map(b=>({id:b.id,type:b.type,x:b.x,y:b.y,w:b.w,h:b.h,level:b.level,rotation:b.rotation,plant:b.plant?{crop:b.plant.crop,start:b.plant.start,end:b.plant.end,watered:b.plant.watered,yield:b.plant.yield,remaining:b.plant.remaining}:null}));
+const workers=(s.workers||[]).filter(w=>w.x>=-112&&w.x<=128&&w.y>=-112&&w.y<=128).map(w=>({id:w.id,name:w.name,x:w.x,y:w.y}));
+return {version:1,farmName:s.farmName||FC.DEFAULT_FARM_NAME,seed:s.seed,time:s.time,level:s.level,xp:s.xp,stats:{harvested:s.stats.harvested},lands,buildings,workers};}
+const service={get configured(){return !!api;},get connected(){return !!service.me;},me:null,error:'',
+start(getState,onUpdate){provider=getState;notify=onUpdate||notify;if(!api||!telegram()?.initData)return;const nativeSave=FarmSaves.save.bind(FarmSaves),nativeReplace=FarmSaves.replace.bind(FarmSaves);const wrap=fn=>async state=>{const ok=await fn(state);if(ok)service.submit(state);return ok;};FarmSaves.save=wrap(nativeSave);FarmSaves.replace=wrap(nativeReplace);service.submit(provider(),true);setInterval(()=>service.submit(provider()),60000);},
+submit(state,force=false){if(!api||!telegram()?.initData)return Promise.resolve(null);try{pending=project(state);}catch(_){return Promise.resolve(null);}clearTimeout(timer);const wait=force?0:Math.max(0,30000-(Date.now()-lastPublished));if(wait){timer=setTimeout(()=>service.publish(),wait);return Promise.resolve(null);}return service.publish();},
+async publish(){if(running)return running;if(!pending&&provider)pending=project(provider());if(!pending)return null;const snapshot=pending;pending=null;const body=JSON.stringify(snapshot);if(service.me&&body===lastBody)return service.me;
+running=(async()=>{try{const data=await request('/api/farms/me',{method:'POST',body});service.me=data.profile||service.me||{id:data.id};lastPublished=Date.now();lastBody=body;service.error='';return service.me;}catch(error){service.error=error.message;return null;}finally{running=null;notify();if(pending){clearTimeout(timer);timer=setTimeout(()=>service.publish(),30000);}}})();return running;},
+async list(offset=0){available();if(provider){await service.submit(provider(),true);if(!service.me&&service.error)throw new Error(service.error);}return request('/api/leaderboard?limit=50&offset='+offset);},
+async farm(id){const data=await request('/api/farms/'+encodeURIComponent(id)),s=data.snapshot;if(!s||!Number.isInteger(s.seed)||!s.lands||!s.lands['0,0']||!Array.isArray(s.buildings)||s.buildings.some(b=>!FC.BUILDINGS[b.type])||!Array.isArray(s.workers))throw new Error('Не удалось прочитать снимок фермы.');return data;}
+};root.FarmSocial=service;
+})(globalThis);
+
+</script>
+<script>
 /* Интерфейс и игровой цикл. Игровые изменения проходят только через FC.act.
    Canvas отвечает за показ; состояние сохраняется отдельно от камеры и модалок. */
 (function(){
@@ -2961,6 +2992,28 @@ let previousPanelHead='',previousPanelBody='',previousHud='';
 const preferences=FarmSaves.preferences();let sound=!!preferences.sound,audioContext=null;
 function savePreferences(patch){Object.assign(preferences,patch);FarmSaves.setPreferences(preferences);}
 let theme=preferences.theme==='light'?'light':'dark';
+let visitState=null,visitProfile=null,visitContext=null,visitSelectedId=null,visitRequest=0;
+const topState={loading:false,error:'',items:[],me:null,total:0,nextOffset:null,loaded:false};let topRequest=0;
+function renderTop(){let out=note('Фермы сравниваются по уровню, затем по опыту и собранному урожаю. Каждый вошедший через Telegram игрок добавляется автоматически.');
+out+='<div class="row topgap">'+btn('Обновить топ','refreshTop',{},'secondary grow',topState.loading)+btn(visitState?'Вернуться домой':'Моя ферма','leaveVisit',{},'ghost grow')+'</div>';
+if(topState.error)return out+'<div class="card soft topgap">'+note(topState.error)+'</div>';
+if(topState.loading&&!topState.loaded)return out+note('Загружаем фермы…');
+if(!topState.loaded)return out+note('Откройте топ, чтобы загрузить участников.');
+out+=sectionTitle('Лучшие фермы','Участников: '+fmt(topState.total));
+if(topState.me)out+='<div class="card gold"><b>Ваша ферма · место '+fmt(topState.me.rank)+'</b><p class="note">'+h(topState.me.name)+' · уровень '+fmt(topState.me.level)+'</p></div>';
+for(const row of topState.items){const mine=topState.me?.id===row.id;out+='<div class="card '+(mine?'gold':'')+' topgap"><div class="row spread"><b class="farm-rank">#'+fmt(row.rank)+'</b><b class="farm-top-name">'+h(row.name)+'</b><span class="badge">Ур. '+fmt(row.level)+'</span></div><p class="note topgap">Опыт: '+fmt(row.xp)+' · Урожай: '+fmt(row.harvested)+' · Участков: '+fmt(row.lands)+'</p>'+btn(mine?'Открыть свою ферму':'Посмотреть ферму',mine?'leaveVisit':'visitFarm',mine?{}:{id:row.id},'secondary full topgap')+'</div>';}
+if(!topState.items.length)out+=note('В топе пока нет ферм.');
+if(topState.nextOffset!==null)out+=btn(topState.loading?'Загрузка…':'Показать ещё','moreTop',{},'ghost full topgap',topState.loading);
+return out;}
+async function loadTop(append=false){const request=++topRequest,offset=append?topState.nextOffset:0;if(offset===null)return;topState.loading=true;topState.error='';if(!append){topState.loaded=false;topState.items=[];}renderPanel();try{const data=await FarmSocial.list(offset);if(request!==topRequest)return;topState.items=append?[...new Map([...topState.items,...data.items].map(v=>[v.id,v])).values()]:data.items;topState.me=data.me;topState.total=data.total;topState.nextOffset=data.nextOffset;topState.loaded=true;}catch(e){if(request===topRequest)topState.error=e.message;}finally{if(request===topRequest){topState.loading=false;if(section==='top')renderPanel();}}}
+function renderVisit(){const s=visitState,b=visitSelectedId?s.buildings.find(v=>v.id===visitSelectedId):null;let out='<div class="card soft"><b>Гостевой просмотр</b><p class="note topgap">Можно осматривать карту и выбирать объекты. Управление чужим хозяйством недоступно.</p></div>';
+if(b){out+=sectionTitle(FC.BUILDINGS[b.type].name)+'<div class="mini-grid">'+stat(fmt(b.level),'уровень постройки')+stat(b.w+' × '+b.h,'размер')+'</div>';}else out+='<div class="mini-grid topgap">'+stat(fmt(s.level),'уровень фермы')+stat(fmt(Object.keys(s.lands).length),'участков')+'</div>';
+out+=note('Снимок обновлён: '+new Date(visitProfile.updatedAt).toLocaleString('ru-RU'));
+out+=sectionTitle('Осмотреть участок')+'<div class="land-visit-list">'+Object.values(s.lands).map(l=>btn(l.cx+' / '+l.cy,'visitLand',{cx:l.cx,cy:l.cy},'ghost sm')).join('')+'</div>';
+return out+'<div class="stack topgap">'+btn('Вернуться на свою ферму','leaveVisit',{},'secondary full')+btn('К топу ферм','leaderboard',{},'ghost full')+'</div>';}
+async function enterVisit(id){const request=++visitRequest;try{toast('Загружаем ферму…');const data=await FarmSocial.farm(id);if(request!==visitRequest)return;if(!visitState)visitContext={camera:{...world.camera},selectedId,selectedLand:{...selectedLand}};cancelPlacement();if(modalOpen)closeModal();visitProfile=data;visitState=data.snapshot;visitSelectedId=null;document.body.classList.add('visiting');world.selectedId=null;world.hover=null;world.refresh();world.home();$('visitBanner').classList.remove('hide');$('visitName').textContent=visitState.farmName;section='visit';previousHud='';showPanel();render(true);updateLandTitle();}catch(e){if(request===visitRequest)toast(e.message,true);}}
+function leaveVisit(){visitRequest++;if(visitState){visitState=null;visitProfile=null;document.body.classList.remove('visiting');visitSelectedId=null;world.refresh();world.camera={...visitContext.camera};selectedId=visitContext.selectedId;selectedLand={...visitContext.selectedLand};world.selectedId=selectedId;visitContext=null;world.hover=null;$('visitBanner').classList.add('hide');previousHud='';previousFarmName='';}section='farm';showPanel();render(true);updateLandTitle();}
+
 function applyTheme(){
   if(theme!=='dark'&&theme!=='light')theme='light';
   if(theme==='dark')document.documentElement.dataset.theme='dark';else delete document.documentElement.dataset.theme;
@@ -2979,7 +3032,7 @@ function applyTheme(){
 function chirp(ok=true){if(!sound)return;try{audioContext=audioContext||new(window.AudioContext||window.webkitAudioContext)();const o=audioContext.createOscillator(),g=audioContext.createGain();o.type='sine';o.frequency.setValueAtTime(ok?580:190,audioContext.currentTime);o.frequency.exponentialRampToValueAtTime(ok?850:140,audioContext.currentTime+.11);g.gain.setValueAtTime(.025,audioContext.currentTime);g.gain.exponentialRampToValueAtTime(.0001,audioContext.currentTime+.16);o.connect(g);g.connect(audioContext.destination);o.start();o.stop(audioContext.currentTime+.17);}catch(e){}}
 function toast(msg,error=false){if(!msg)return;const d=document.createElement('div');d.className='toast'+(error?' error':'');d.textContent=msg;$('toasts').appendChild(d);while($('toasts').children.length>3)$('toasts').firstChild.remove();setTimeout(()=>{d.classList.add('exit');setTimeout(()=>d.remove(),300);},error?5400:3300);}
 function scheduleSave(){clearTimeout(saveTimer);saveTimer=setTimeout(()=>FarmSaves.save(state),120);}
-function perform(action,p={},quiet=false){if(!state)return;let r;try{r=FC.act(state,action,p);}catch(e){console.error(e);r={ok:false,msg:'Действие не выполнено: '+e.message};}if(r.ok){if(!quiet)toast(r.msg);chirp();if(['build','move','demolish','clear','land','hire','fire'].includes(action))world.refresh?.();scheduleSave();}else{toast(r.msg||'Действие сейчас недоступно.',true);chirp(false);}render(true);return r;}
+function perform(action,p={},quiet=false){if(!state)return;if(visitState){toast('Вы осматриваете чужую ферму.',true);return {ok:false};}let r;try{r=FC.act(state,action,p);}catch(e){console.error(e);r={ok:false,msg:'Действие не выполнено: '+e.message};}if(r.ok){if(!quiet)toast(r.msg);chirp();if(['build','move','demolish','clear','land','hire','fire'].includes(action))world.refresh?.();scheduleSave();}else{toast(r.msg||'Действие сейчас недоступно.',true);chirp(false);}render(true);return r;}
 function showPanel(){ $('panel').classList.remove('mobile-hidden');$('panel').inert=false; }
 function hidePanel(){if($('panel').contains(document.activeElement))document.activeElement.blur();$('panel').classList.add('mobile-hidden');if(innerWidth<981)$('panel').inert=true; }
 function setSection(value){section=value;selectedNature=null;if(value!=='farm')selectedId=null;if(value!=='build')cancelPlacement();showPanel();render(true);}
@@ -2991,6 +3044,7 @@ function closeModal(){modalOpen=false;modalCallback=null;$('modalRoot').classLis
 function buildingTitle(b){if(b.type==='plot'&&b.plant)return FC.CROPS[b.plant.crop]?.name||FC.BUILDINGS[b.type].name;return FC.BUILDINGS[b.type]?.name||'Постройка';}
 function onPick(hit){
   if(!state||modalOpen)return;
+  if(visitState){visitSelectedId=hit?.buildingId||null;world.selectedId=visitSelectedId;section='visit';showPanel();render(true);return;}
   if(hit?.outside){toast('Вы достигли границы мира ('+(FC.WORLD_RADIUS*2+1)+' × '+(FC.WORLD_RADIUS*2+1)+' участков).');return;}
   if(placement){const p=placement;const data={type:p.type,x:hit.x,y:hit.y,rotation:p.rotation};if(p.moveId)data.id=p.moveId;const r=perform(p.moveId?'move':'build',data);if(r?.ok){selectedId=p.moveId||r.id||state.buildings.at(-1)?.id;world.selectedId=selectedId;const d=FC.BUILDINGS[p.type],repeat=!p.moveId&&!d.unique&&state.coins>=(d.cost.coins||0)&&['wood','stone'].every(k=>(state.items[k]||0)>=(d.cost[k]||0));if(repeat){selectedId=null;world.selectedId=null;world.setPlacement(placement);renderPlacement();}else{cancelPlacement();section='farm';showPanel();if(!p.moveId&&!d.unique)toast('Построено. Для следующего объекта не хватает ресурсов.');}render(true);}return;}
   selectedLand={cx:Math.floor(hit.x/FC.CHUNK),cy:Math.floor(hit.y/FC.CHUNK)};
@@ -3004,6 +3058,8 @@ function updateMarkup(el,html){if(renderedMarkup.get(el)!==html){el.innerHTML=ht
 const hudNumberFormat=new Intl.NumberFormat('ru-RU',{notation:'compact',maximumFractionDigits:1,maximumSignificantDigits:3});
 const hudFmt=n=>hudNumberFormat.format(Number(n)||0).replace(/[\s.]/g,'');
 function updateHUD(){
+  if(visitState){$('pauseBtn').disabled=true;$('settingsBtn').disabled=true;updateMarkup($('hud'),'<div class="visit-hud"><b>В гостях · '+h(visitState.farmName)+'</b><span>Уровень '+fmt(visitState.level)+'</span></div>');$('pauseVeil').classList.add('hide');return;}
+  $('pauseBtn').disabled=false;$('settingsBtn').disabled=false;
   const used=FC.used(state),cap=FC.capacity(state),need=FC.levelNeed(state.level);
   const rs=[['coins','🪙','Монеты',state.coins],['wood','🪵','Дерево',state.items.wood||0],['stone','🪨','Камень',state.items.stone||0],['water','💧','Вода',state.items.water||0],['storage','📦','Склад',fmt(used)+' / '+fmt(cap)]];
   const markup=rs.map(([id,icon,label,n])=>'<button class="resource" data-action="inventory" title="'+label+': '+(id==='storage'?used.toLocaleString('ru-RU')+' / '+cap.toLocaleString('ru-RU'):Number(n).toLocaleString('ru-RU'))+' — открыть склад"><span class="resource-ico '+(id==='coins'?'coin-ico':'')+'">'+icon+'</span><span><span class="resource-value '+(id==='coins'?'coin-value':'')+'">'+(id==='storage'?'<span class="hud-used">'+hudFmt(used)+'</span><span class="hud-cap"> / '+hudFmt(cap)+'</span>':hudFmt(n))+'</span><span class="resource-label">'+label+'</span></span></button>').join('')+'<div class="level-chip"><div class="level-medal" title="Уровень игрока">'+fmt(state.level)+'</div><div class="grow"><div class="small" style="font-weight:600">Уровень '+fmt(state.level)+'</div><div class="xp-track"><div class="xp-fill" style="width:'+Math.min(100,state.xp/need*100)+'%"></div></div><div class="tiny muted" style="margin-top:3px">'+fmt(state.xp)+' / '+fmt(need)+' опыта</div></div></div>';
@@ -3016,18 +3072,20 @@ function updateHUD(){
   document.querySelectorAll('[data-end][data-start]').forEach(el=>{const end=Number(el.dataset.end),start=Number(el.dataset.start);el.style.width=Math.max(0,Math.min(100,(state.time-start)/Math.max(.01,end-start)*100))+'%';});
 }
 let previousFarmName='';
-function updateFarmName(){const name=state.farmName||FC.DEFAULT_FARM_NAME;if(name===previousFarmName)return;previousFarmName=name;$('farmName').textContent=name;$('farmName').title=name;document.title='Ферма: '+name;}
+function updateFarmName(){const name=visitState?.farmName||state.farmName||FC.DEFAULT_FARM_NAME;if(name===previousFarmName)return;previousFarmName=name;$('farmName').textContent=name;$('farmName').title=name;document.title='Ферма: '+name;}
 function render(force=false,refreshHud=true){
   if(!state)return;updateFarmName();if(refreshHud)updateHUD();
   if(state.level>lastLevel){toast('Новый уровень '+state.level+'! Открытия доступны в «Развитии».');lastLevel=state.level;}
   updateMarkup($('arrangeBtn'),ico('move',18)+(arranging?'Обустройство включено':'Обустройство'));$('arrangeBtn').classList.toggle('active',arranging);
-  if(force){$('nav').innerHTML=navs.map(([id,label])=>'<button class="nav-btn '+(section===id||section==='inventory'&&id==='farm'?'active':'')+'" data-action="nav" data-p="'+h(JSON.stringify({section:id}))+'" title="'+h(label)+'">'+ico(id)+'<span>'+(id==='map'?'Карта<br>земель':label)+'</span></button>').join('')+'<div class="rail-bottom"><button class="icon-btn" data-action="save" aria-label="Сохранить" title="Сохранить сейчас">'+ico('save',19)+'</button><span id="saveDot" class="save-dot '+(saveState==='error'?'bad':'')+'" title="'+h(saveMessage)+'"></span><span class="rail-version">ДОЛИНА · 1.0</span></div>';}
+  if(force){$('nav').innerHTML=navs.map(([id,label])=>'<button class="nav-btn '+(section===id||section==='inventory'&&id==='farm'?'active':'')+'" data-action="nav" data-p="'+h(JSON.stringify({section:id}))+'" title="'+h(label)+'"'+(visitState&&id!=='farm'?' disabled':'')+'>'+ico(id)+'<span>'+(id==='map'?'Карта<br>земель':label)+'</span></button>').join('')+'<div class="rail-bottom"><button class="icon-btn" data-action="save" aria-label="Сохранить" title="Сохранить сейчас">'+ico('save',19)+'</button><span id="saveDot" class="save-dot '+(saveState==='error'?'bad':'')+'" title="'+h(saveMessage)+'"></span><span class="rail-version">ДОЛИНА · 1.0</span></div>';}
   if(!force&&(performance.now()-lastPointer<350||['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName)))return;
   renderPanel();
 }
 function renderPanel(){
   let head='',body='';
-  if(section==='farm'){
+  if(section==='top'){head=header('Хозяйства игроков','Топ ферм','Общий рейтинг фермеров Telegram.');body=renderTop();}
+  else if(section==='visit'&&visitState){head=header('Вы в гостях',visitState.farmName,'Осмотр хозяйства');body=renderVisit();}
+  else if(section==='farm'){
     const b=selectedId?state.buildings.find(b=>b.id===selectedId):null;
     if(b){head=header('Ваше хозяйство',buildingTitle(b),'Уровень здания '+b.level+' · участок '+Math.floor(b.x/16)+' / '+Math.floor(b.y/16));body=renderBuilding(b);}
     else if(selectedNature){head=header('Живая земля','Природный объект','Материалы рядом с домом');body=renderNature();}
@@ -3045,7 +3103,7 @@ function renderPanel(){
 }
 function renderJournal(){
   const steps=['Посадите пшеницу на грядке','Полейте посаженную пшеницу','Соберите первый урожай','Выполните первый заказ'],t=state.tutorial||0;
-  let out='<div class="journal-hero"><h3>Растите в своём ритме</h3><p>Обустраивайте землю, открывайте ремёсла и создавайте свою долину.</p><span class="journal-leaf">🌾</span></div>';
+  let out=btn('🏆 Топ ферм','leaderboard',{},'secondary full')+'<div class="journal-hero topgap"><h3>Растите в своём ритме</h3><p>Обустраивайте землю, открывайте ремёсла и создавайте свою долину.</p><span class="journal-leaf">🌾</span></div>';
   if(t<4)out+=sectionTitle('Первые шаги',(Math.min(t,4))+' / 4')+'<div class="card">'+steps.map((v,i)=>'<div class="task-line '+(i<t?'done':i===t?'current':'')+'"><span class="task-check">'+(i<t?'✓':i+1)+'</span><span>'+v+'</span></div>').join('')+note(t===0?'Нажмите на одну из шести грядок рядом с домом.':t===1?'Выберите посев и нажмите «Полить».':t===2?'Полив сокращает время роста. Пока ждёте, можно засеять остальные грядки.':'Откройте «Заказы» и передайте пшеницу.')+(t===3?btn('Открыть заказы','nav',{section:'orders'},'full topgap'):'')+'</div>';
   else out+=sectionTitle('Хозяйство сегодня')+'<div class="mini-grid">'+stat(fmt(state.buildings.filter(b=>FC.BUILDINGS[b.type].category!=='decoration').length),'объектов в хозяйстве')+stat(fmt(Object.keys(state.lands).length),'освоенных участков')+'</div>';
   out+=sectionTitle('Полезные занятия')+'<div class="stack"><div class="card white"><div class="card-title"><span class="round-ico">🌿</span><div><h3 style="font-size:13px">Прогулка по лугу</h3><p class="tiny muted">Дикие травы и материалы возвращаются.</p></div></div>'+btn('Собрать дары природы','forage',{cx:selectedLand.cx,cy:selectedLand.cy},'secondary full')+'</div><div class="card white"><div class="card-title"><span class="round-ico gold">📦</span><div><h3 style="font-size:13px">Товары находят покупателей</h3><p class="tiny muted">Можно продавать напрямую или по заказу.</p></div></div><div class="row">'+btn('На рынок','inventory',{},'ghost grow')+btn('К заказам','nav',{section:'orders'},'secondary grow')+'</div></div></div>';
@@ -3249,6 +3307,15 @@ function showHelp(){
 }
 async function handleAction(action,p){
   if(!state&&action!=='help'&&action!=='toggleTheme')return;
+  if(action==='leaderboard'){section='top';showPanel();render(true);loadTop();return;}
+  if(action==='refreshTop'){loadTop();return;}
+  if(action==='moreTop'){loadTop(true);return;}
+  if(action==='visitFarm'){await enterVisit(p.id);return;}
+  if(action==='leaveVisit'){leaveVisit();return;}
+  if(action==='visitLand'&&visitState){if(visitState.lands[p.cx+','+p.cy])world.focus(p.cx*16+8,p.cy*16+8);if(innerWidth<981)hidePanel();return;}
+  if(action==='nav'&&visitState&&p.section==='farm'){leaveVisit();return;}
+  if(visitState&&!['zoom','home','hidePanel','showPanel','toggleTheme','help','closeModal'].includes(action)){toast('Для управления вернитесь на свою ферму.');return;}
+  if(action==='showPanel'&&visitState){section='visit';showPanel();render(true);return;}
   if(action==='nav'){setSection(p.section);return;}
   if(action==='inventory'){setSection('inventory');return;}
   if(action==='showPanel'){showPanel();return;}
@@ -3299,7 +3366,7 @@ async function handleAction(action,p){
   const r=perform(action,p);
   if(action==='clear'&&r?.ok){selectedNature=null;render(true);}
 }
-function updateLandTitle(){if(!state||!world)return;const v=world.view,cx=Math.floor(v.x/16),cy=Math.floor(v.y/16),info=FC.landInfo(state,cx,cy);$('landTitle').textContent=cx===0&&cy===0?'Домашний луг':info.name;$('landSubtitle').textContent='Участок '+cx+' · '+cy+' — '+(info.owned?'ваша земля':'новые возможности');}
+function updateLandTitle(){if(!state||!world)return;const shown=visitState||state;const v=world.view,cx=Math.floor(v.x/16),cy=Math.floor(v.y/16),info=FC.landInfo(shown,cx,cy);$('landTitle').textContent=cx===0&&cy===0?'Домашний луг':info.name;$('landSubtitle').textContent='Участок '+cx+' · '+cy+' — '+(info.owned?(visitState?'земля этой фермы':'ваша земля'):'новые возможности');}
 document.addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||button.disabled)return;e.preventDefault();e.stopPropagation();lastPointer=performance.now();let p={};try{p=JSON.parse(button.dataset.p||'{}');}catch(err){}handleAction(button.dataset.action,p).catch(err=>{console.error(err);toast('Действие не выполнено: '+err.message,true);});});
 document.addEventListener('pointerdown',()=>{lastPointer=performance.now();},true);
 document.addEventListener('input',e=>{if(e.target.id==='farmNameInput'){$('farmNameCount').textContent=Array.from(FC.normalizeFarmName(e.target.value)).length;$('farmNameError').textContent='';e.target.removeAttribute('aria-invalid');}if(e.target.id==='catalogSearch'){catalogQuery=e.target.value;const pos=e.target.selectionStart;renderPanel();const input=$('catalogSearch');input?.focus();input?.setSelectionRange(pos,pos);}});
@@ -3317,13 +3384,14 @@ $('importFile').addEventListener('change',async e=>{
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){if(modalOpen)closeModal();else if(placement)cancelPlacement();else hidePanel();return;}
   if(modalOpen){if(e.key==='Enter'&&!e.isComposing&&e.target.id==='farmNameInput'){e.preventDefault();handleAction('renameFarm',{});return;}if(e.key==='Tab'){const focusable=[...$('modalRoot').querySelectorAll('button:not(:disabled),input,select')];if(!focusable.length)return;const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}return;}
+  if(visitState)return;
   if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)||e.ctrlKey||e.metaKey||e.altKey)return;
   if(e.code==='Space'){e.preventDefault();handleAction('pause',{});}else if(e.code==='KeyB')setSection('build');else if(e.code==='KeyO')setSection('orders');else if(e.code==='KeyM')setSection('map');else if(e.code==='KeyR'&&placement)handleAction('rotatePlacement',{});
 });
 let lastFrame=0,accumulator=0,saveElapsed=0,lastPanelTime=0,lastWorldFrame=-Infinity;
 function frame(now){
   if(!lastFrame)lastFrame=now;const dt=Math.min(.25,Math.max(0,(now-lastFrame)/1000));lastFrame=now;
-  if(state&&!document.hidden&&!state.paused&&!modalOpen){
+  if(state&&!visitState&&!document.hidden&&!state.paused&&!modalOpen){
     accumulator+=dt;if(accumulator>=.25){const d=Math.min(.5,accumulator);accumulator=0;FC.step(state,d);saveElapsed+=d;if(saveElapsed>=30){saveElapsed=0;FarmSaves.save(state);}}
   }else accumulator=0;
   if(world&&!document.hidden&&now-lastWorldFrame>=1000/30){lastWorldFrame=now;world.draw(now);}
@@ -3343,8 +3411,9 @@ async function init(){
   applyTheme();
   try{await FarmSaves.open(saveStatus);state=await FarmSaves.load();}catch(e){saveStatus('error',e.message);if(FarmSaves.cloudMode){$('loading').innerHTML='<h1>Не удалось загрузить ферму</h1><p class="small">'+h(e.message)+'</p><p class="note topgap">Облачный прогресс не заменён новой фермой.</p><button class="btn topgap" id="retryCloud">Повторить подключение</button>';$('retryCloud').onclick=()=>location.reload();return;}}
   if(!state)state=FC.create();lastLevel=state.level;
-  world=new FarmWorld($('world'),{getState:()=>state,onPick,onView:updateLandTitle});
+  world=new FarmWorld($('world'),{getState:()=>visitState||state,onPick,onView:updateLandTitle});
   world.setTheme(theme);
+  FarmSocial.start(()=>state,()=>{if(world&&section==='top')renderPanel();});
   world.home();updateLandTitle();render(true);$('loading').remove();
   if(innerWidth>=981)showPanel();else hidePanel();
   requestAnimationFrame(frame);
@@ -3354,5 +3423,6 @@ async function init(){
 init().catch(e=>{console.error(e);const l=$('loading');if(l)l.innerHTML='<h1>Не удалось открыть ферму</h1><p class="small">'+h(e.message)+'</p>';});
 })();
 </script>
+
 </body></html>
 
