@@ -1638,16 +1638,16 @@ const balance={spec,consume,get current(){return copy(current);},get active(){re
       const stroke=(points,col,width,depth)=>parts.push({depth,draw:()=>line(c,points.map(p=>project(...p)),col,width)});
       const bodyZ=fed?5.4+breath:2.7+breath,headY=.98-.01*groom,headZ=fed?9+bob+(6.9+Math.sin(t*7)*.15-9-bob)*groom:3.6+breath+Math.sin(t*.8)*.12;
       const tail=fed?Math.sin(t*(lick?4:8))*.09:Math.sin(t*.7)*.008;
-      stroke([[.78,.51,bodyZ],[.79+tail,.43,bodyZ+(fed?3:.2)],[.78+tail*1.5,.38,bodyZ+(fed?4.7:0)]],'#98633d',2.2,(()=>{const q=m.world([.78,.46,bodyZ]);return (q[0]+q[1])*24+bodyZ*.45;})());
-      oval(.78,.66,bodyZ,.095,.18,fed?2.55:2,'#c69760');
+      stroke([[.78,.585,bodyZ],[.79+tail,.505,bodyZ+(fed?3:.2)],[.78+tail*1.5,.455,bodyZ+(fed?4.7:0)]],'#98633d',2.2,(()=>{const q=m.world([.78,.535,bodyZ]);return (q[0]+q[1])*24+bodyZ*.45;})());
+      oval(.78,.695,bodyZ,.095,.145,fed?2.55:2,'#c69760');
       oval(.78,.81,fed?5.8:3,.087,.085,fed?2.8:1.8,'#e7c994');
       for(const x of [.715,.845]){
         if(fed){
           // Rear thigh joins the rump; the hock bends back into a small grounded paw.
-          oval(x,.575,3.8,.031,.042,1.3,'#c69760');
-          const q=m.world([x,.60,1.8]);
-          stroke([[x,.60,3.2],[x,.56,1.3],[x,.635,.65]],'#c69760',1.25,(q[0]+q[1])*24+1.8*.45);
-          oval(x,.655,.6,.028,.043,.6,'#d5af7b');
+          oval(x,.63,3.8,.031,.042,1.3,'#c69760');
+          const q=m.world([x,.655,1.8]);
+          stroke([[x,.655,3.2],[x,.615,1.3],[x,.69,.65]],'#c69760',1.25,(q[0]+q[1])*24+1.8*.45);
+          oval(x,.71,.6,.028,.043,.6,'#d5af7b');
           oval(x,.88,3+(x<.78?groom*.5:0),.026,.033,2.5-(x<.78?groom:0),'#c99a63');
         }
         oval(x,fed?.92+(x<.78?.095*groom:0):1.005,.8+(fed&&x<.78?4.6*groom:0),.034,fed?.055:.085,.8,'#e8cfa2');
@@ -1662,9 +1662,10 @@ const balance={spec,consume,get current(){return copy(current);},get active(){re
       }
       stroke([[.765,headY+.125,headZ-1.15],[.78,headY+.133,headZ-1.35],[.795,headY+.125,headZ-1.15]],'#674833',.55,101);
       if(fed){const tongue=lick?(Math.sin(t*15)*.5+.5)*.035:.012;oval(.78,headY+.126+tongue,headZ-1.45,.018,.023,lick?.5:.65,'#e58f88');}
-      // A narrow teal collar and brass tag stay below the jaw.
-      stroke([[.706,.88,fed?7:3.3],[.78,.90,fed?6.7:3.1],[.854,.88,fed?7:3.3]],'#397e79',1,99);
-      oval(.78,.916,fed?6.2:2.7,.011,.009,.38,'#efc867');
+      // Sort the low collar with the body so the moving muzzle always occludes it.
+      const collarZ=fed?5.8:2.1,neck=m.world([.78,.85,collarZ]);
+      stroke([[.715,.84,collarZ],[.78,.86,collarZ-.2],[.845,.84,collarZ]],'#397e79',.65,(neck[0]+neck[1])*24+collarZ*.45);
+      oval(.78,.887,collarZ-.5,.011,.009,.3,'#efc867');
       parts.sort((a,b)=>a.depth-b.depth);for(const part of parts)part.draw();
     }
 
@@ -3103,7 +3104,7 @@ const balance={spec,consume,get current(){return copy(current);},get active(){re
     _status(c,b,pal){
       const d=G.FC.BUILDINGS[b.type]||{};if(d.category==='decoration')return;
       const w=b.w||d.w||1,h=b.h||d.h||1,p=pt(b.x+w/2,b.y+h/2,b.type==='plot'?14:b.type==='kennel'?35:68),out=Object.values(b.output||{}).reduce((a,n)=>a+(Number(n)||0),0),construction=(b.constructionUntil||0)>this._time,upgrade=b.upgrade&&b.upgrade.end>this._time;
-      if(b.type==='kennel')p.x-=15;
+      if(b.type==='kennel')p.x-=9;
       let text='',color='#2d8d60',bar=null;
       if(construction||upgrade){text=upgrade?'↑':'⌁';color='#b48a31';const u=b.upgrade||{};bar=upgrade?clamp(1-(u.end-this._time)/Math.max(1,u.duration||u.seconds||20),0,1):null;}
       else if(b.plant){if(!b.plant.watered){text='💧';color='#489db2';}else if(b.plant.end<=this._time){text='✓';color='#60991b';}else{bar=clamp((this._time-b.plant.start)/Math.max(1,b.plant.end-b.plant.start),0,1);color=b.plant.watered?'#489db2':'#7faa43';}}
