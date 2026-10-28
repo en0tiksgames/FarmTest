@@ -351,6 +351,7 @@ html body.visiting .mode-bar{display:none}html body.visiting .hud{display:flex!i
 html body .visit-banner.tool-pill{left:22px;right:82px;bottom:var(--field-tools-bottom);max-width:540px;padding:10px 12px;font-size:12px}
 @media(max-width:980px){html body .visit-banner.tool-pill{left:15px}}
 @media(max-width:600px){html body .visit-banner.tool-pill{left:12px;right:72px;flex-direction:column;align-items:stretch;gap:6px}html body .visit-banner button{width:100%;min-height:40px}}
+@media(max-width:980px){html body.visiting .panel{bottom:calc(190px + env(safe-area-inset-bottom));max-height:calc(100% - 205px - env(safe-area-inset-bottom))}}
 </style>
 <script>
 /* Browser toolbars can leave the layout viewport taller than the visible area. */
@@ -390,6 +391,7 @@ html body .visit-banner.tool-pill{left:22px;right:82px;bottom:var(--field-tools-
   </main>
 </div>
 <div id="modalRoot" class="modal-root hide"></div><div class="toast-container" id="toasts" role="status" aria-live="polite"></div>
+<div id="networkGate" class="modal-root hide" style="z-index:95" role="alert"><div class="pause-card"><h2>Связь с фермой</h2><p id="networkMessage" class="note"></p><button class="btn full topgap" data-action="networkReconnect">Переподключиться</button></div></div>
 <input type="file" id="importFile" accept="application/json,.json" hidden>
 <div id="loading" class="loading-screen"><div class="loading-sprout">🌱</div><h1>Луговая долина</h1><p class="small muted">Готовим землю для вашей истории…</p></div>
 <script>
@@ -3068,6 +3070,73 @@ async farm(id){const data=await request('/api/farms/'+encodeURIComponent(id)),s=
 
 </script>
 <script>
+/* Shared balances and raid commits are held on the server; CloudStorage is a backup. */
+(function(root){
+'use strict';
+const api=(document.querySelector('meta[name="farm-social-api"]')?.content||'').replace(/\/$/,''),tg=()=>root.Telegram?.WebApp;
+let enabled=false,ready=true,busy=false,revision=0,session='',provider=null,replace=null,status=()=>{},nativeSave=null,queue=Promise.resolve(),lastBackup=0,failedWrite=null,recovery=null,leaseAt=0;
+let sessionKey='';const copy=v=>JSON.parse(JSON.stringify(v));
+const network={get enabled(){return enabled;},get ready(){return ready;},get busy(){return busy;},get configured(){return !!api&&!!tg()?.initData;},get recoveryAvailable(){return !!recovery;},id:null,error:'',rules:null};
+function emit(){root.dispatchEvent(new CustomEvent('farm-network',{detail:{ready,busy,error:network.error}}));}
+function offline(error){if(provider)remember(provider());ready=false;network.error=error.message||String(error);status('error',network.error);emit();}
+async function request(path,body){
+ const response=await fetch(api+path,{method:body?'POST':'GET',headers:{Authorization:'tma '+tg().initData,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(15000),referrerPolicy:'no-referrer'});
+ let data;try{data=await response.json();}catch(_){throw new Error('Сервер вернул нечитаемый ответ.');}
+ if(!response.ok){const e=new Error(data.error||'Сервер временно недоступен.');e.code=data.code;e.status=response.status;throw e;}return data;
+}
+function remember(s){recovery=copy(s);try{localStorage.setItem(sessionKey+'_recovery',JSON.stringify(recovery));}catch(_){} }
+function enqueue(fn){const task=queue.catch(()=>{}).then(fn);queue=task.catch(()=>{});return task;}
+async function write(snapshot,key=crypto.randomUUID(),base=revision){
+ const payload={session,revision:base,key,state:snapshot};failedWrite=payload;
+ const data=await request('/api/session/save',payload);revision=data.revision;network.id=data.id;failedWrite=null;leaseAt=performance.now();
+ if(nativeSave&&performance.now()-lastBackup>30000){lastBackup=performance.now();void nativeSave(snapshot);}
+ status('saved','Прогресс сохранён на сервере.');return true;
+}
+network.bootstrap=async(local,allowCreate=true)=>{
+ if(!network.configured)return local;
+ sessionKey='farm-session-'+(tg().initDataUnsafe?.user?.id||'telegram')+'-'+location.pathname;
+ const health=await request('/api/health');if(health.features?.raids!==1){let primary=false;try{primary=localStorage.getItem(sessionKey+'_primary')==='1';}catch(_){}if(primary)throw new Error('Эта ферма уже хранится на сервере. Верните обновлённую версию сервера, чтобы продолжить.');if(!allowCreate&&!local)throw new Error('Не удалось загрузить личное сохранение. Повторите подключение.');return local;}
+ enabled=true;ready=false;sessionKey='farm-session-'+(tg().initDataUnsafe?.user?.id||'telegram')+'-'+location.pathname;
+ try{session=sessionStorage.getItem(sessionKey)||crypto.randomUUID();sessionStorage.setItem(sessionKey,session);recovery=JSON.parse(localStorage.getItem(sessionKey+'_recovery')||'null');}catch(_){session=session||crypto.randomUUID();}
+ const data=await request('/api/session/open',{session,state:local||(allowCreate?FC.create():null)});const valid=FC.validate(data.state);if(!valid.ok)throw new Error('Серверное сохранение не прошло проверку: '+valid.msg);
+ revision=data.revision;network.id=data.id;network.rules=data.rules;ready=true;leaseAt=performance.now();try{localStorage.setItem(sessionKey+'_primary','1');}catch(_){}return data.state;
+};
+network.install=(getState,setState,onStatus)=>{
+ if(!enabled)return;provider=getState;replace=setState;status=onStatus||status;nativeSave=FarmSaves.save.bind(FarmSaves);
+ FarmSaves.save=state=>{const snapshot=copy(state);return enqueue(async()=>{if(!ready||busy)return false;try{return await write(snapshot);}catch(e){offline(e);return false;}});};
+ FarmSaves.replace=async()=>{status('warning','Сетевая ферма хранится на сервере. Восстановление старой копии и сброс отключены, чтобы не отменять набеги.');return false;};
+ FarmSaves.flush=()=>queue;
+ setInterval(()=>{if(!document.hidden&&ready&&!busy)void FarmSaves.save(provider());},10000);
+ // Freeze before a presence lease can expire, even if a browser suspended timers.
+ setInterval(()=>{if(!document.hidden&&ready&&!busy&&performance.now()-leaseAt>30000)offline(new Error('Подтверждаем связь с сервером. Нажмите «Переподключиться».'));},1000);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden){ready=false;emit();void network.reconnect();}});
+};
+network.reconnect=()=>enqueue(async()=>{
+ if(!enabled)return;ready=false;network.error='Подключаемся к ферме…';emit();
+ try{
+  if(failedWrite){try{const d=await request('/api/session/save',failedWrite);revision=d.revision;failedWrite=null;}catch(e){if(!['STALE_STATE','SESSION_REPLACED'].includes(e.code))throw e;remember(provider());failedWrite=null;}}
+  const data=await request('/api/session/open',{session,state:null});const valid=FC.validate(data.state);if(!valid.ok)throw new Error(valid.msg);revision=data.revision;network.id=data.id;replace(data.state);ready=true;network.error='';leaseAt=performance.now();status('saved','Загружен актуальный прогресс.');
+ }catch(e){offline(e);}finally{emit();}
+});
+network.social=()=>request('/api/social');network.invite=()=>request('/api/social/invite');network.preview=id=>request('/api/raids/preview?id='+encodeURIComponent(id));
+network.neighbor=(action,data)=>request('/api/social/'+action,data);
+network.acceptLaunch=async()=>{if(!enabled)return;const param=new URLSearchParams(tg().initData).get('start_param')||'';if(param.startsWith('n_'))await network.neighbor('accept',{code:param.slice(2)});};
+network.raid=(id,victimRevision,key=crypto.randomUUID())=>enqueue(async()=>{
+ if(!ready||busy)throw new Error('Дождитесь подключения к серверу.');busy=true;network.error='Проводим набег…';emit();
+ try{
+  await write(copy(provider()));
+  const body={id,victimRevision,key,session,revision};let data;
+  try{data=await request('/api/raids',body);}catch(e){if(!e.status)data=await request('/api/raids',body);else throw e;}
+  revision=data.revision;replace(data.state);leaseAt=performance.now();lastBackup=performance.now();void nativeSave(data.state);return data.loot;
+ }catch(e){if(!e.status||e.code==='STALE_STATE'||e.code==='SESSION_REPLACED')offline(e);throw e;}
+ finally{busy=false;network.error=ready?'':network.error;emit();}
+});
+network.exportRecovery=()=>{if(recovery)FarmSaves.exportJSON(recovery);};
+root.FarmNet=network;
+})(globalThis);
+
+</script>
+<script>
 /* Интерфейс и игровой цикл. Игровые изменения проходят только через FC.act.
    Canvas отвечает за показ; состояние сохраняется отдельно от камеры и модалок. */
 (function(){
@@ -3115,6 +3184,7 @@ let theme=preferences.theme==='light'?'light':'dark';
 let visitState=null,visitProfile=null,visitContext=null,visitSelectedId=null,visitRequest=0;
 const topState={loading:false,error:'',items:[],me:null,total:0,nextOffset:null,loaded:false};let topRequest=0;
 function renderTop(){let out=note('Фермы сравниваются по уровню, затем по опыту и собранному урожаю. Каждый вошедший через Telegram игрок добавляется автоматически.');
+out+='<div class="row topgap">'+btn('🏡 Соседи и набеги','neighbors',{},'secondary grow')+'</div>';
 out+='<div class="row topgap">'+btn('Обновить топ','refreshTop',{},'secondary grow',topState.loading)+btn(visitState?'Вернуться домой':'Моя ферма','leaveVisit',{},'ghost grow')+'</div>';
 if(topState.error)return out+'<div class="card soft topgap">'+note(topState.error)+'</div>';
 if(topState.loading&&!topState.loaded)return out+note('Загружаем фермы…');
@@ -3127,12 +3197,38 @@ if(topState.nextOffset!==null)out+=btn(topState.loading?'Загрузка…':'�
 return out;}
 async function loadTop(append=false){const request=++topRequest,offset=append?topState.nextOffset:0;if(offset===null)return;topState.loading=true;topState.error='';if(!append){topState.loaded=false;topState.items=[];}renderPanel();try{const data=await FarmSocial.list(offset);if(request!==topRequest)return;topState.items=append?[...new Map([...topState.items,...data.items].map(v=>[v.id,v])).values()]:data.items;topState.me=data.me;topState.total=data.total;topState.nextOffset=data.nextOffset;topState.loaded=true;}catch(e){if(request===topRequest)topState.error=e.message;}finally{if(request===topRequest){topState.loading=false;if(section==='top')renderPanel();}}}
 function renderVisit(){const s=visitState,b=visitSelectedId?s.buildings.find(v=>v.id===visitSelectedId):null;let out='<div class="card soft"><b>Гостевой просмотр</b><p class="note topgap">Можно осматривать карту и выбирать объекты. Управление чужим хозяйством недоступно.</p></div>';
+if(FarmNet.enabled){const raid=visitProfile.raid;out+='<div class="card gold topgap"><b>Набег на соседа</b>'+note('До 10 грядок и 5% золота, максимум 10.000 монет. Защита и повторная кража — 8 часов.')+(raid?.allowed?btn('Проверить добычу','raidPreview',{id:visitProfile.id},'secondary full topgap'):note((raid?.reason||'Обновите сведения о ферме.')+(raid?.retryAt?' Осталось: '+secs((raid.retryAt-Date.now())/1000):'')))+'<div class="row wrap topgap">'+btn('Предложить соседство','requestNeighbor',{id:visitProfile.id},'ghost grow')+btn('Соседи','neighbors',{},'ghost grow')+'</div></div>';}
 if(b){out+=sectionTitle(FC.BUILDINGS[b.type].name)+'<div class="mini-grid">'+stat(fmt(b.level),'уровень постройки')+stat(b.w+' × '+b.h,'размер')+'</div>';}else out+='<div class="mini-grid topgap">'+stat(fmt(s.level),'уровень фермы')+stat(fmt(Object.keys(s.lands).length),'участков')+'</div>';
 out+=note('Снимок обновлён: '+new Date(visitProfile.updatedAt).toLocaleString('ru-RU'));
 out+=sectionTitle('Осмотреть участок')+'<div class="land-visit-list">'+Object.values(s.lands).map(l=>btn(l.cx+' / '+l.cy,'visitLand',{cx:l.cx,cy:l.cy},'ghost sm')).join('')+'</div>';
 return out+'<div class="stack topgap">'+btn('Вернуться на свою ферму','leaveVisit',{},'secondary full')+btn('К топу ферм','leaderboard',{},'ghost full')+'</div>';}
-async function enterVisit(id){const request=++visitRequest;try{toast('Загружаем ферму…');const data=await FarmSocial.farm(id);if(request!==visitRequest)return;if(!visitState)visitContext={camera:{...world.camera},selectedId,selectedLand:{...selectedLand}};cancelPlacement();if(modalOpen)closeModal();visitProfile=data;visitState=data.snapshot;visitSelectedId=null;document.body.classList.add('visiting');world.selectedId=null;world.hover=null;world.refresh();world.home();$('visitBanner').classList.remove('hide');$('visitName').textContent=visitState.farmName;section='visit';previousHud='';showPanel();render(true);updateLandTitle();}catch(e){if(request===visitRequest)toast(e.message,true);}}
+async function enterVisit(id){const request=++visitRequest;try{toast('Загружаем ферму…');const data=await FarmSocial.farm(id);if(FarmNet.enabled)try{data.raid=await FarmNet.preview(id);}catch(e){data.raid={allowed:false,reason:e.message};}if(request!==visitRequest)return;if(!visitState)visitContext={camera:{...world.camera},selectedId,selectedLand:{...selectedLand}};cancelPlacement();if(modalOpen)closeModal();visitProfile=data;visitState=data.snapshot;visitSelectedId=null;document.body.classList.add('visiting');world.selectedId=null;world.hover=null;world.refresh();world.home();$('visitBanner').classList.remove('hide');$('visitName').textContent=visitState.farmName;section='visit';previousHud='';showPanel();render(true);updateLandTitle();}catch(e){if(request===visitRequest)toast(e.message,true);}}
 function leaveVisit(){visitRequest++;if(visitState){visitState=null;visitProfile=null;document.body.classList.remove('visiting');visitSelectedId=null;world.refresh();world.camera={...visitContext.camera};selectedId=visitContext.selectedId;selectedLand={...visitContext.selectedLand};world.selectedId=selectedId;visitContext=null;world.hover=null;$('visitBanner').classList.add('hide');previousHud='';previousFarmName='';}section='farm';showPanel();render(true);updateLandTitle();}
+
+const neighborsState={data:null,loading:false,error:''};
+function renderNeighbors(){
+ let out=note('Набеги доступны с 10-го уровня после первых 48 часов игры. Разница уровней — до 10. Не более 3 успешных набегов за 24 часа.');
+ if(!FarmNet.enabled)return out+note('Для соседства и набегов нужно обновить сервер и открыть игру через Telegram.');
+ out+='<div class="row wrap topgap">'+btn('Пригласить соседа','inviteNeighbor',{},'secondary grow')+btn('Обновить','neighbors',{},'ghost grow',neighborsState.loading)+'</div>';
+ if(neighborsState.error)return out+note(neighborsState.error,true);
+ const data=neighborsState.data;if(!data)return out+note('Загружаем соседей…');
+ if(data.protectedUntil>Date.now())out+='<div class="card gold topgap">'+note('Ваша ферма под защитой ещё '+secs((data.protectedUntil-Date.now())/1000))+'</div>';
+ if(data.incoming.length){out+=sectionTitle('Предложения соседства');for(const n of data.incoming)out+='<div class="card topgap"><b>'+h(n.name)+'</b>'+note('Уровень '+fmt(n.level))+btn('Принять','acceptNeighbor',{id:n.id},'secondary full')+'</div>';}
+ out+=sectionTitle('Ваши соседи',data.neighbors.length);
+ for(const n of data.neighbors)out+='<div class="card topgap"><b>'+h(n.name)+'</b>'+note('Уровень '+fmt(n.level)+' · '+(n.online?'Сейчас играет':n.protectedUntil>Date.now()?'Защита ещё '+secs((n.protectedUntil-Date.now())/1000):'Можно проверить добычу'))+btn('Посетить ферму','visitFarm',{id:n.id},'secondary full')+'</div>';
+ if(!data.neighbors.length)out+=note('Пригласите знакомого по ссылке, примите заявку или откройте ферму по ссылке из общего Telegram-чата.');
+ out+=sectionTitle('Последние набеги');
+ for(const event of data.history){const mine=event.attacker===data.id,other=mine?event.victim:event.attacker;out+='<div class="card topgap"><b>'+h(mine?'Вы посетили «'+event.victim_name+'»':'К вам заходила ферма «'+event.attacker_name+'»')+'</b>'+note(new Date(event.at).toLocaleString('ru-RU'))+note((mine?'Получено':'Потеряно')+' золота: '+fmt(event.loot.coins)+' · грядок: '+fmt(event.loot.plots))+goods(event.loot.items)+btn('Посмотреть ферму','visitFarm',{id:other},'ghost full topgap')+'</div>';}
+ if(!data.history.length)out+=note('Набегов пока не было.');
+ return out;
+}
+async function loadNeighbors(){if(!FarmNet.enabled)return;neighborsState.loading=true;neighborsState.error='';renderPanel();try{neighborsState.data=await FarmNet.social();}catch(e){neighborsState.error=e.message;}finally{neighborsState.loading=false;if(section==='neighbors')renderPanel();}}
+async function previewRaid(id){const quote=await FarmNet.preview(id);if(!quote.allowed){toast(quote.reason,true);if(visitProfile?.id===id){visitProfile.raid=quote;renderPanel();}return;}
+ openModal('Забрать добычу?',note('Золото: '+fmt(quote.coins)+' · Грядок: '+quote.plots.length)+goods(quote.items)+note('После набега ферма получит защиту на 8 часов. Повторно зайти за добычей к этому соседу можно через 8 часов.'),'Забрать',()=>{void executeRaid(id,quote.victimRevision);});
+}
+async function executeRaid(id,victimRevision){try{const loot=await FarmNet.raid(id,victimRevision);if(visitProfile?.id===id){const data=await FarmSocial.farm(id);data.raid=await FarmNet.preview(id);visitProfile=data;visitState=data.snapshot;world.refresh();render(true);}openModal('Добыча получена',note('Золото: '+fmt(loot.coins)+' · Грядок: '+loot.plots)+goods(loot.items));neighborsState.data=null;}catch(e){toast(e.message,true);}}
+function applyNetworkState(next){state=next;lastLevel=next.level;world?.refresh();if(selectedId&&!next.buildings.some(b=>b.id===selectedId))selectedId=null;previousHud='';previousFarmName='';render(true);updateLandTitle();}
+window.addEventListener('farm-network',()=>{const gate=$('networkGate'),blocked=FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy);gate.classList.toggle('hide',!blocked);$('networkMessage').textContent=FarmNet.error||'Подключаемся к серверу…';const retry=gate.querySelector('button');retry.disabled=FarmNet.busy;});
 
 function applyTheme(){
   if(theme!=='dark'&&theme!=='light')theme='light';
@@ -3152,7 +3248,7 @@ function applyTheme(){
 function chirp(ok=true){if(!sound)return;try{audioContext=audioContext||new(window.AudioContext||window.webkitAudioContext)();const o=audioContext.createOscillator(),g=audioContext.createGain();o.type='sine';o.frequency.setValueAtTime(ok?580:190,audioContext.currentTime);o.frequency.exponentialRampToValueAtTime(ok?850:140,audioContext.currentTime+.11);g.gain.setValueAtTime(.025,audioContext.currentTime);g.gain.exponentialRampToValueAtTime(.0001,audioContext.currentTime+.16);o.connect(g);g.connect(audioContext.destination);o.start();o.stop(audioContext.currentTime+.17);}catch(e){}}
 function toast(msg,error=false){if(!msg)return;const d=document.createElement('div');d.className='toast'+(error?' error':'');d.textContent=msg;$('toasts').appendChild(d);while($('toasts').children.length>3)$('toasts').firstChild.remove();setTimeout(()=>{d.classList.add('exit');setTimeout(()=>d.remove(),300);},error?5400:3300);}
 function scheduleSave(){clearTimeout(saveTimer);saveTimer=setTimeout(()=>FarmSaves.save(state),120);}
-function perform(action,p={},quiet=false){if(!state)return;if(visitState){toast('Вы осматриваете чужую ферму.',true);return {ok:false};}let r;try{r=FC.act(state,action,p);}catch(e){console.error(e);r={ok:false,msg:'Действие не выполнено: '+e.message};}if(r.ok){if(!quiet)toast(r.msg);chirp();if(['build','move','demolish','clear','land','hire','fire'].includes(action))world.refresh?.();scheduleSave();}else{toast(r.msg||'Действие сейчас недоступно.',true);chirp(false);}render(true);return r;}
+function perform(action,p={},quiet=false){if(!state)return;if(FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy)){toast('Дождитесь подтверждения сервера.',true);return {ok:false};}if(visitState){toast('Вы осматриваете чужую ферму.',true);return {ok:false};}let r;try{r=FC.act(state,action,p);}catch(e){console.error(e);r={ok:false,msg:'Действие не выполнено: '+e.message};}if(r.ok){if(!quiet)toast(r.msg);chirp();if(['build','move','demolish','clear','land','hire','fire'].includes(action))world.refresh?.();scheduleSave();}else{toast(r.msg||'Действие сейчас недоступно.',true);chirp(false);}render(true);return r;}
 function showPanel(){ $('panel').classList.remove('mobile-hidden');$('panel').inert=false; }
 function hidePanel(){if($('panel').contains(document.activeElement))document.activeElement.blur();$('panel').classList.add('mobile-hidden');if(innerWidth<981)$('panel').inert=true; }
 function setSection(value){section=value;selectedNature=null;if(value!=='farm')selectedId=null;if(value!=='build')cancelPlacement();showPanel();render(true);}
@@ -3163,6 +3259,7 @@ function openModal(title,body,confirmLabel,callback,kind=''){modalOpen=true;moda
 function closeModal(){modalOpen=false;modalCallback=null;$('modalRoot').classList.add('hide');$('modalRoot').innerHTML='';}
 function buildingTitle(b){if(b.type==='plot'&&b.plant)return FC.CROPS[b.plant.crop]?.name||FC.BUILDINGS[b.type].name;return FC.BUILDINGS[b.type]?.name||'Постройка';}
 function onPick(hit){
+  if(FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy))return;
   if(!state||modalOpen)return;
   if(visitState){visitSelectedId=hit?.buildingId||null;world.selectedId=visitSelectedId;section='visit';showPanel();render(true);return;}
   if(hit?.outside){toast('Вы достигли границы мира ('+(FC.WORLD_RADIUS*2+1)+' × '+(FC.WORLD_RADIUS*2+1)+' участков).');return;}
@@ -3202,7 +3299,8 @@ function render(force=false,refreshHud=true){
 }
 function renderPanel(){
   let head='',body='';
-  if(section==='top'){head=header('Хозяйства игроков','Топ ферм','Общий рейтинг фермеров Telegram.');body=renderTop();}
+  if(section==='neighbors'){head=header('Знакомые хозяйства','Соседи и набеги','В гости — за урожаем и золотом');body=renderNeighbors();}
+  else if(section==='top'){head=header('Хозяйства игроков','Топ ферм','Общий рейтинг фермеров Telegram.');body=renderTop();}
   else if(section==='visit'&&visitState){head=header('Вы в гостях',visitState.farmName,'Осмотр хозяйства');body=renderVisit();}
   else if(section==='farm'){
     const b=selectedId?state.buildings.find(b=>b.id===selectedId):null;
@@ -3218,7 +3316,7 @@ function renderPanel(){
   const sc=$('panelBody').scrollTop;
   if(previousPanelHead!==head){$('panelHead').innerHTML=head;previousPanelHead=head;}
   if(previousPanelBody!==body){$('panelBody').innerHTML=body;$('panelBody').scrollTop=sc;previousPanelBody=body;}
-  updateMarkup($('panelFooter'),(saveState==='error'?'⚠ '+h(saveMessage):'● '+(saveState==='saving'?'Сохраняем ферму…':(FarmSaves.cloudMode?'Сохранение в Telegram':'Автосохранение включено')))+'<br>В закрытой и скрытой вкладке время не идёт.');
+  updateMarkup($('panelFooter'),(saveState==='error'?'⚠ '+h(saveMessage):'● '+(saveState==='saving'?'Сохраняем ферму…':(FarmNet.enabled?'Сохранение на сервере':FarmSaves.cloudMode?'Сохранение в Telegram':'Автосохранение включено')))+'<br>В закрытой и скрытой вкладке время не идёт.');
 }
 function renderJournal(){
   const steps=['Посадите пшеницу на грядке','Полейте посаженную пшеницу','Соберите первый урожай','Выполните первый заказ'],t=state.tutorial||0;
@@ -3405,8 +3503,8 @@ function showSpecialization(id,value){
 }
 function showSettings(){
   const name=state.farmName||FC.DEFAULT_FARM_NAME;
-  const cloudInfo=FarmSaves.cloudMode?'<div class="card soft"><b>Сохранение аккаунта Telegram</b><p class="note topgap">Прогресс хранится в облаке этого бота и доступен вашему аккаунту на других устройствах. Играйте на одном устройстве за раз.</p></div>'+(FarmSaves.recoveryAvailable?btn('Скачать несинхронизированную копию','exportRecovery',{},'ghost full topgap'):'')+'<div class="line"></div>':'';
-  const body=cloudInfo+'<div class="farm-name-editor"><label for="farmNameInput"><b>Название фермы</b></label><input id="farmNameInput" class="topgap" type="text" maxlength="48" value="'+h(name)+'" autocomplete="off" aria-describedby="farmNameHint farmNameError"><p class="note topgap" id="farmNameHint">От 1 до '+FC.FARM_NAME_LIMIT+' символов · <span id="farmNameCount">'+Array.from(name).length+'</span> / '+FC.FARM_NAME_LIMIT+'. В шапке длинное название сокращается многоточием.</p><p class="note danger" id="farmNameError" role="status"></p>'+btn('Сохранить название','renameFarm',{},'secondary full topgap')+'</div><div class="line"></div><div class="toggle-line"><div><h3>Звуки фермы</h3><p class="note">Короткие звуки действий. Музыка не загружается.</p></div><button class="toggle '+(sound?'on':'')+'" data-action="toggleSound" aria-label="Звуки" aria-pressed="'+sound+'"></button></div><div class="toggle-line"><div><h3>Тёмная тема</h3><p class="note">Интерфейс, карта и все панели переключаются на ночную палитру. Выбор сохраняется в этом браузере.</p></div><button class="toggle '+(theme==='dark'?'on':'')+'" data-action="toggleTheme" aria-label="Тёмная тема" aria-pressed="'+(theme==='dark')+'"></button></div><div class="line"></div><div class="help-section"><h3>Ваша ферма сохраняется</h3><p>Автосохранение выполняется после действий и каждые 30 игровых секунд. '+(FarmSaves.cloudMode?'Основная копия хранится в Telegram, запасная — на этом устройстве.':'Копия хранится в этом браузере.')+' Экспортируйте JSON, чтобы перенести игру или сделать резервную копию.</p></div><div class="row wrap">'+btn(ico('save',17)+' Сохранить сейчас','save',{},'secondary grow')+btn('Скачать JSON','export',{},'grow')+'</div><div class="row topgap">'+btn('Импортировать JSON','import',{},'ghost full')+'</div><div class="card '+(saveState==='error'?'danger':'soft')+' topgap">'+note(saveState==='error'?saveMessage:'Есть основная запись и предыдущая автоматическая копия.')+'</div><div class="line"></div><div class="help-section"><h3>Игровое время</h3><p>На паузе, в скрытой вкладке, при закрытом файле и пока открыто окно подтверждения таймеры остановлены. Производство за время отсутствия не начисляется.</p><p class="topgap">Проведено на ферме: <b>'+secs(state.time)+'</b>. Уровень: <b>'+fmt(state.level)+'</b>.</p></div>'+btn('Начать новую ферму','newGamePreview',{},'danger full');
+  const cloudInfo=FarmNet.enabled?'<div class="card soft"><b>Сетевая ферма</b><p class="note topgap">Основной прогресс и добыча набегов хранятся на сервере. Telegram хранит резервную копию. При потере связи игра приостанавливается до подключения.</p></div>'+(FarmNet.recoveryAvailable?btn('Скачать несинхронизированную копию','exportNetworkRecovery',{},'ghost full topgap'):'')+'<div class="line"></div>':FarmSaves.cloudMode?'<div class="card soft"><b>Сохранение аккаунта Telegram</b><p class="note topgap">Прогресс хранится в облаке этого бота и доступен вашему аккаунту на других устройствах. Играйте на одном устройстве за раз.</p></div>'+(FarmSaves.recoveryAvailable?btn('Скачать несинхронизированную копию','exportRecovery',{},'ghost full topgap'):'')+'<div class="line"></div>':'';
+  const body=cloudInfo+'<div class="farm-name-editor"><label for="farmNameInput"><b>Название фермы</b></label><input id="farmNameInput" class="topgap" type="text" maxlength="48" value="'+h(name)+'" autocomplete="off" aria-describedby="farmNameHint farmNameError"><p class="note topgap" id="farmNameHint">От 1 до '+FC.FARM_NAME_LIMIT+' символов · <span id="farmNameCount">'+Array.from(name).length+'</span> / '+FC.FARM_NAME_LIMIT+'. В шапке длинное название сокращается многоточием.</p><p class="note danger" id="farmNameError" role="status"></p>'+btn('Сохранить название','renameFarm',{},'secondary full topgap')+'</div><div class="line"></div><div class="toggle-line"><div><h3>Звуки фермы</h3><p class="note">Короткие звуки действий. Музыка не загружается.</p></div><button class="toggle '+(sound?'on':'')+'" data-action="toggleSound" aria-label="Звуки" aria-pressed="'+sound+'"></button></div><div class="toggle-line"><div><h3>Тёмная тема</h3><p class="note">Интерфейс, карта и все панели переключаются на ночную палитру. Выбор сохраняется в этом браузере.</p></div><button class="toggle '+(theme==='dark'?'on':'')+'" data-action="toggleTheme" aria-label="Тёмная тема" aria-pressed="'+(theme==='dark')+'"></button></div><div class="line"></div><div class="help-section"><h3>Ваша ферма сохраняется</h3><p>Автосохранение выполняется после действий и каждые 30 игровых секунд. '+(FarmNet.enabled?'Основная копия хранится на сервере; Telegram — резервная копия.':'')+(FarmNet.enabled?'':FarmSaves.cloudMode?'Основная копия хранится в Telegram, запасная — на этом устройстве.':'Копия хранится в этом браузере.')+' Экспортируйте JSON, чтобы перенести игру или сделать резервную копию.</p></div><div class="row wrap">'+btn(ico('save',17)+' Сохранить сейчас','save',{},'secondary grow')+btn('Скачать JSON','export',{},'grow')+'</div><div class="row topgap">'+btn('Импортировать JSON','import',{},'ghost full',FarmNet.enabled,'Для сетевой фермы восстановление старой копии отключено')+'</div><div class="card '+(saveState==='error'?'danger':'soft')+' topgap">'+note(saveState==='error'?saveMessage:'Есть основная запись и предыдущая автоматическая копия.')+'</div><div class="line"></div><div class="help-section"><h3>Игровое время</h3><p>На паузе, в скрытой вкладке, при закрытом файле и пока открыто окно подтверждения таймеры остановлены. Производство за время отсутствия не начисляется.</p><p class="topgap">Проведено на ферме: <b>'+secs(state.time)+'</b>. Уровень: <b>'+fmt(state.level)+'</b>.</p></div>'+btn('Начать новую ферму','newGamePreview',{},'danger full',FarmNet.enabled,'Сетевая ферма привязана к аккаунту');
   openModal('Настройки и сохранения',body);
 }
 function showHelp(){
@@ -3425,7 +3523,17 @@ function showHelp(){
   openModal('Добро пожаловать в долину',help.map(([title,text])=>'<div class="help-section"><h3>'+h(title)+'</h3><p>'+h(text)+'</p></div>').join('')+'<div class="card soft">'+note('Игра целиком находится в этом HTML-файле. Интернет, установки и сервер не нужны. Для переноса прогресса используйте экспорт JSON в настройках.')+'</div>');
 }
 async function handleAction(action,p){
+  if(action==='networkReconnect'){await FarmNet.reconnect();return;}
   if(!state&&action!=='help'&&action!=='toggleTheme')return;
+  if(FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy)&&!['export','help','closeModal'].includes(action)){toast('Дождитесь подключения к серверу.',true);return;}
+  if(action==='neighbors'){section='neighbors';showPanel();render(true);await loadNeighbors();return;}
+  if(action==='inviteNeighbor'){const data=await FarmNet.invite();openModal('Пригласить соседа','<div class="farm-name-editor"><input readonly aria-label="Ссылка приглашения" value="'+h(data.url)+'"></div>'+note('Отправьте эту ссылку знакомому. После открытия через Telegram вы появитесь друг у друга в соседях.')+btn('Поделиться в Telegram','shareNeighbor',{url:data.url},'secondary full topgap'));return;}
+  if(action==='shareNeighbor'){Telegram.WebApp.openTelegramLink('https://t.me/share/url?url='+encodeURIComponent(p.url)+'&text='+encodeURIComponent('Заходи на мою ферму!'));return;}
+  if(action==='requestNeighbor'){await FarmNet.neighbor('request',{id:p.id});toast('Предложение соседства отправлено.');return;}
+  if(action==='acceptNeighbor'){await FarmNet.neighbor('accept',{id:p.id});toast('Теперь вы соседи.');await loadNeighbors();return;}
+  if(action==='raidPreview'){await previewRaid(p.id);return;}
+  if(FarmNet.enabled&&['newGamePreview','import'].includes(action)){toast('Сетевая ферма хранится на сервере: сброс и восстановление старой копии отключены, чтобы не отменять набеги.',true);return;}
+
   if(action==='leaderboard'){section='top';showPanel();render(true);loadTop();return;}
   if(action==='refreshTop'){loadTop();return;}
   if(action==='moreTop'){loadTop(true);return;}
@@ -3433,7 +3541,7 @@ async function handleAction(action,p){
   if(action==='leaveVisit'){leaveVisit();return;}
   if(action==='visitLand'&&visitState){if(visitState.lands[p.cx+','+p.cy])world.focus(p.cx*16+8,p.cy*16+8);if(innerWidth<981)hidePanel();return;}
   if(action==='nav'&&visitState&&p.section==='farm'){leaveVisit();return;}
-  if(visitState&&!['zoom','home','hidePanel','showPanel','toggleTheme','help','closeModal'].includes(action)){toast('Для управления вернитесь на свою ферму.');return;}
+  if(visitState&&!['zoom','home','hidePanel','showPanel','toggleTheme','help','closeModal','confirmModal'].includes(action)){toast('Для управления вернитесь на свою ферму.');return;}
   if(action==='showPanel'&&visitState){section='visit';showPanel();render(true);return;}
   if(action==='nav'){setSection(p.section);return;}
   if(action==='inventory'){setSection('inventory');return;}
@@ -3455,6 +3563,7 @@ async function handleAction(action,p){
     const saved=await FarmSaves.save(state);toast(saved?'Название фермы сохранено.':'Название изменено. Состояние сохранения можно проверить в настройках.',!saved);return;
   }
   if(action==='toggleSound'){sound=!sound;savePreferences({sound});showSettings();chirp();return;}
+  if(action==='exportNetworkRecovery'){FarmNet.exportRecovery();return;}
   if(action==='exportRecovery'){FarmSaves.exportRecovery?.();return;}
   if(action==='save'){const ok=await FarmSaves.save(state);toast(ok?'Ферма сохранена.':'Не удалось сохранить. Подробности — в настройках.',!ok);return;}
   if(action==='export'){FarmSaves.exportJSON(state);toast('Резервная копия JSON подготовлена.');return;}
@@ -3511,7 +3620,7 @@ let lastFrame=0,accumulator=0,saveElapsed=0,lastPanelTime=0,animationTime=0,anim
 function frame(now){
   if(!lastFrame)lastFrame=now;const dt=Math.min(.25,Math.max(0,(now-lastFrame)/1000));lastFrame=now;
   if(state!==animationState){animationState=state;animationTime=state?.time||0;accumulator=0;}
-  if(state&&!visitState&&!document.hidden&&!state.paused&&!modalOpen){
+  if(state&&!visitState&&!document.hidden&&!state.paused&&!modalOpen&&(!FarmNet.enabled||FarmNet.ready&&!FarmNet.busy)){
     animationTime+=dt;accumulator+=dt;
     while(accumulator>=.25){world.captureWorkers(state);FC.step(state,.25);world.finishWorkers(state);accumulator-=.25;saveElapsed+=.25;if(saveElapsed>=30){saveElapsed=0;FarmSaves.save(state);}}
   }
@@ -3530,18 +3639,22 @@ window.addEventListener('error',e=>{if(!state){$('loading').innerHTML='<h1>Не 
 async function init(){
   $('helpBtn').innerHTML=ico('help',20);$('settingsBtn').innerHTML=ico('settings',20);
   applyTheme();
-  try{await FarmSaves.open(saveStatus);state=await FarmSaves.load();}catch(e){saveStatus('error',e.message);if(FarmSaves.cloudMode){$('loading').innerHTML='<h1>Не удалось загрузить ферму</h1><p class="small">'+h(e.message)+'</p><p class="note topgap">Облачный прогресс не заменён новой фермой.</p><button class="btn topgap" id="retryCloud">Повторить подключение</button>';$('retryCloud').onclick=()=>location.reload();return;}}
+  let cloudLoaded=false;
+  try{await FarmSaves.open(saveStatus);state=await FarmSaves.load();cloudLoaded=true;}catch(e){saveStatus('error',e.message);if(FarmSaves.cloudMode&&!FarmNet.configured){$('loading').innerHTML='<h1>Не удалось загрузить ферму</h1><p class="small">'+h(e.message)+'</p><p class="note topgap">Облачный прогресс не заменён новой фермой.</p><button class="btn topgap" id="retryCloud">Повторить подключение</button>';$('retryCloud').onclick=()=>location.reload();return;}}
+  state=await FarmNet.bootstrap(state,cloudLoaded);
   if(!state)state=FC.create();lastLevel=state.level;
   world=new FarmWorld($('world'),{getState:()=>visitState||state,onPick,onView:updateLandTitle});
   world.setTheme(theme);
+  FarmNet.install(()=>state,applyNetworkState,saveStatus);
   FarmSocial.start(()=>state,()=>{if(world&&section==='top')renderPanel();});
+  await FarmNet.acceptLaunch().catch(e=>toast(e.message,true));
   world.home();updateLandTitle();render(true);$('loading').remove();
   if(innerWidth>=981)showPanel();else hidePanel();
   requestAnimationFrame(frame);
   // Explicit read-only diagnostic surface for local verification, no cheats in the UI.
   Object.defineProperty(window,'MeadowValley',{value:{get snapshot(){return JSON.parse(JSON.stringify(state));},get version(){return '1.0';}},writable:false});
 }
-init().catch(e=>{console.error(e);const l=$('loading');if(l)l.innerHTML='<h1>Не удалось открыть ферму</h1><p class="small">'+h(e.message)+'</p>';});
+init().catch(e=>{console.error(e);const l=$('loading');if(l)l.innerHTML='<h1>Не удалось подключить ферму</h1><p class="small">'+h(e.message)+'</p><button class="btn" id="retryNetworkBoot">Повторить</button>';const retry=$('retryNetworkBoot');if(retry)retry.onclick=()=>location.reload();});
 })();
 </script>
 
