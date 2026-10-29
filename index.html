@@ -359,6 +359,26 @@ html body .visit-banner.tool-pill{left:22px;right:82px;bottom:var(--field-tools-
 .market-limit-row{display:flex;gap:12px;align-items:center;justify-content:space-between}.market-limit-row>span{min-width:0;overflow-wrap:anywhere}.market-limit-row .btn{flex-shrink:0}
 @media(min-width:981px){html body .workspace{grid-template-columns:142px minmax(0,1fr) 344px}html body .rail{padding:20px 10px 14px;overflow-y:auto}html body #nav .nav-btn{width:100%;min-width:0;font-size:12px!important;padding:10px 3px!important;min-height:clamp(54px,9.5vh,79px);gap:8px;overflow:visible}html body #nav .nav-btn span{width:100%;white-space:nowrap;line-height:1.15;font-size:inherit;letter-spacing:0}html body #nav .nav-btn svg{width:25px;height:25px}}
 @media(min-width:981px) and (max-width:1190px){html body .workspace{grid-template-columns:142px minmax(0,1fr) 316px}}
+/* Panels use the same top inset as the land/weather plaques. */
+@media(max-width:980px){
+ html body .panel{top:16px;height:auto;max-height:none}
+ html body.visiting .panel{top:16px;height:auto;max-height:none}
+}
+/* Compact panel heading: the close button no longer sets the title row height. */
+html body .panel-head{position:relative;padding:12px 20px 10px;min-height:0}
+html body .panel-head>.row{min-height:0;align-items:flex-start}
+html body .panel-head>.row>div{min-width:0}
+html body .panel-head h2{line-height:1.15;margin:0}
+html body .panel-head p{margin-top:5px;line-height:1.3}
+@media(max-width:980px){
+ html body .panel-head{padding:12px 55px 10px 18px}
+ html body .panel-head .panel-close{position:absolute;right:8px;top:4px;width:44px;height:44px;min-height:44px;padding:0}
+}
+/* Match the 9px gap above the navigation with the gap below the header. */
+@media(max-width:980px){
+ html body .panel,html body.visiting .panel{top:9px;bottom:calc(87px + env(safe-area-inset-bottom));height:auto;max-height:none}
+}
+html body .panel-body .section-title{margin-top:12px;margin-bottom:12px}
 </style>
 <script>
 /* Browser toolbars can leave the layout viewport taller than the visible area. */
@@ -394,7 +414,7 @@ html body .visit-banner.tool-pill{left:22px;right:82px;bottom:var(--field-tools-
       <div class="mode-bar"><button id="arrangeBtn" class="tool-pill" data-action="arrange"></button><button class="tool-pill" data-action="harvestAll">🌾 Собрать всё</button><div class="map-help" id="mapHelp">Нажмите на грядку, чтобы посадить.<br>Перетаскивайте карту, чтобы осмотреться.</div></div>
       <div id="pauseVeil" class="pause-veil hide"><div class="pause-card"><div style="font-size:33px">☕</div><h2>Ферма отдыхает</h2><p class="small muted">Все таймеры остановлены.<br>Можно продолжить в любой момент.</p><button class="btn" data-action="pause">Вернуться на ферму</button></div></div>
     </section>
-    <aside id="panel" class="panel mobile-hidden" aria-label="Управление фермой"><div id="panelHead" class="panel-head"></div><div id="panelBody" class="panel-body"></div><div class="panel-footer" id="panelFooter"></div></aside>
+    <aside id="panel" class="panel mobile-hidden" aria-label="Управление фермой"><div id="panelHead" class="panel-head"></div><div id="panelBody" class="panel-body"></div></aside>
   </main>
 </div>
 <div id="modalRoot" class="modal-root hide"></div><div class="toast-container" id="toasts" role="status" aria-live="polite"></div>
@@ -3411,7 +3431,7 @@ function btn(label,action,p={},cls='',disabled=false,reason=''){return '<button 
 function cost(c,check=true){return '<span class="cost">'+Object.entries(c||{}).filter(([k,v])=>v>0).map(([k,v])=>'<span class="'+(check&&(k==='coins'?state.coins:(state.items[k]||0))<v?'missing':'')+'">'+(k==='coins'?'🪙':FC.ITEMS[k]?.icon||'•')+' '+fmt(v)+'</span>').join('')+'</span>';}
 function goods(c,check=false){return '<div class="ingredients">'+Object.entries(c||{}).filter(([k,v])=>v>0).map(([k,v])=>'<span class="ingredient '+(check&&(state.items[k]||0)<v?'missing':'')+'" title="'+h(FC.ITEMS[k]?.name||k)+'">'+(FC.ITEMS[k]?.icon||'📦')+' '+fmt(v)+' '+h(FC.ITEMS[k]?.name||k)+'</span>').join('')+'</div>';}
 function note(t,err=false){return '<p class="note '+(err?'danger':'')+'">'+h(t)+'</p>';}
-function header(kicker,title,desc=''){return '<div class="row spread"><div><div class="panel-kicker">'+h(kicker)+'</div><h2>'+h(title)+'</h2></div><button class="icon-btn panel-close" data-action="hidePanel" aria-label="Закрыть панель">'+ico('close',19)+'</button></div>'+(desc?'<p>'+h(desc)+'</p>':'');}
+function header(kicker,title,desc=''){return '<div class="row spread"><div><h2>'+h(title)+'</h2></div><button class="icon-btn panel-close" data-action="hidePanel" aria-label="Закрыть панель">'+ico('close',19)+'</button></div>'+(desc?'<p>'+h(desc)+'</p>':'');}
 function sectionTitle(t,side=''){return '<div class="section-title"><h3>'+h(t)+'</h3><span class="small">'+h(side)+'</span></div>';}
 function stat(value,label){return '<div class="stat"><b class="value">'+value+'</b><span>'+h(label)+'</span></div>';}
 function progress(end,start=0,color=''){const pct=end>start?Math.max(0,Math.min(100,(state.time-start)/(end-start)*100)):100;return '<div class="progress-track"><div class="progress-bar '+color+'" data-start="'+start+'" data-end="'+end+'" style="width:0%"></div></div>';}
@@ -3565,11 +3585,10 @@ function renderPanel(){
   const sc=$('panelBody').scrollTop;
   if(previousPanelHead!==head){$('panelHead').innerHTML=head;previousPanelHead=head;}
   if(previousPanelBody!==body){$('panelBody').innerHTML=body;$('panelBody').scrollTop=sc;previousPanelBody=body;}
-  updateMarkup($('panelFooter'),(saveState==='error'?'⚠ '+h(saveMessage):'● '+(saveState==='saving'?'Сохраняем ферму…':(FarmNet.enabled?'Сохранение на сервере':FarmSaves.cloudMode?'Сохранение в Telegram':'Автосохранение включено')))+'<br>В закрытой и скрытой вкладке время не идёт.');
 }
 function renderJournal(){
   const steps=['Посадите пшеницу на грядке','Полейте посаженную пшеницу','Соберите первый урожай','Выполните первый заказ'],t=state.tutorial||0;
-  let out=btn('🏆 Топ ферм','leaderboard',{},'secondary full')+'<div class="journal-hero topgap"><h3>Растите в своём ритме</h3><p>Обустраивайте землю, открывайте ремёсла и создавайте свою долину.</p><span class="journal-leaf">🌾</span></div>';
+  let out=btn('🏆 Топ ферм','leaderboard',{},'secondary full');
   if(t<4)out+=sectionTitle('Первые шаги',(Math.min(t,4))+' / 4')+'<div class="card">'+steps.map((v,i)=>'<div class="task-line '+(i<t?'done':i===t?'current':'')+'"><span class="task-check">'+(i<t?'✓':i+1)+'</span><span>'+v+'</span></div>').join('')+note(t===0?'Нажмите на одну из шести грядок рядом с домом.':t===1?'Выберите посев и нажмите «Полить».':t===2?'Полив сокращает время роста. Пока ждёте, можно засеять остальные грядки.':'Откройте «Заказы» и передайте пшеницу.')+(t===3?btn('Открыть заказы','nav',{section:'orders'},'full topgap'):'')+'</div>';
   else out+=sectionTitle('Хозяйство сегодня')+'<div class="mini-grid">'+stat(fmt(state.buildings.filter(b=>FC.BUILDINGS[b.type].category!=='decoration').length),'объектов в хозяйстве')+stat(fmt(Object.keys(state.lands).length),'освоенных участков')+'</div>';
   out+=sectionTitle('Полезные занятия')+'<div class="stack"><div class="card white"><div class="card-title"><span class="round-ico">🌿</span><div><h3 style="font-size:13px">Прогулка по лугу</h3><p class="tiny muted">Дикие травы и материалы возвращаются.</p></div></div>'+btn('Собрать дары природы','forage',{cx:selectedLand.cx,cy:selectedLand.cy},'secondary full')+'</div><div class="card white"><div class="card-title"><span class="round-ico gold">📦</span><div><h3 style="font-size:13px">Товары находят покупателей</h3><p class="tiny muted">Можно продавать напрямую или по заказу.</p></div></div><div class="row">'+btn('На рынок','inventory',{},'ghost grow')+btn('К заказам','nav',{section:'orders'},'secondary grow')+'</div></div></div>';
