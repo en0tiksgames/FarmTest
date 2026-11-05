@@ -1,0 +1,38 @@
+﻿type;name;levels;example
+well;Колодец;1;well-L1-R0.png
+mill;Мельница;1;mill-L1-R0.png
+coop;Курятник;1;coop-L1-R0.png
+bakery;Пекарня;1,3;bakery-L1-R0.png
+apiary;Пасека;1;apiary-L1-R0.png
+jam;Варочный цех;1,5,8;jam-L1-R0.png
+sheep;Овчарня;1;sheep-L1-R0.png
+loom;Ткацкая мастерская;1,3,5,8;loom-L1-R0.png
+automation;Диспетчерская;1;automation-L1-R0.png
+fishery;Рыбное хозяйство;1;fishery-L1-R0.png
+sawmill;Лесопилка;1,3,5,8;sawmill-L1-R0.png
+complex;Автоматизированный комплекс;1;complex-L1-R0.png
+market;Фермерский рынок;1;market-L1-R0.png
+kennel;Будка с собакой;1;kennel-L1-R0.png
+path_wood;Деревянная дорожка;1;path_wood-L1-R0.png
+path_stone;Каменная дорожка;1;path_stone-L1-R0.png
+path_brick;Кирпичная дорожка;1;path_brick-L1-R0.png
+fence;Деревянный забор;1;fence-L1-R0.png
+gate;Ворота;1;gate-L1-R0.png
+lamp;Садовый фонарь;1;lamp-L1-R0.png
+bench;Скамейка;1;bench-L1-R0.png
+table;Столик для отдыха;1;table-L1-R0.png
+gazebo;Беседка;1;gazebo-L1-R0.png
+fountain;Фонтан;1;fountain-L1-R0.png
+pond_decor;Декоративный пруд;1;pond_decor-L1-R0.png
+scarecrow;Пугало;1;scarecrow-L1-R0.png
+sign;Вывеска;1;sign-L1-R0.png
+gnome;Садово-декоративная фигурка;1;gnome-L1-R0.png
+barn;Коровник;1;barn-L1-R0.png
+cart;Садовая тележка;1;cart-L1-R0.png
+cheese;Сыроварня;1,5,8;cheese-L1-R0.png
+cottage;Домик работников;1,3,5,8;cottage-L1-R0.png
+dairy;Молочная мастерская;1,3,5,8;dairy-L1-R0.png
+greenhouse;Развитая теплица;1;greenhouse-L1-R0.png
+house;Дом фермера;1,3,5,8;house-L1-R0.png
+quarry;Каменоломня;1;quarry-L1-R0.png
+warehouse;Склад;1,3,5,8;warehouse-L1-R0.png
