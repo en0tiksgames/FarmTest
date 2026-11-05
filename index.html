@@ -1006,6 +1006,8 @@ const balance={spec,consume,get current(){return copy(current);},get active(){re
   // Nature shadows are baked into RGBA PNG files.
   // Optional external buildings: cached probes with level and view fallback.
   // A missing or invalid PNG is a normal cache miss, never a fatal load error.
+  const SPRITE_MILL_ROTORS=[{x:447,y:335,axis:.86,slope:.44,radius:268},{x:469,y:330,axis:.86,slope:-.44,radius:268},{x:547,y:350,axis:.86,slope:.44,radius:268},{x:560,y:315,axis:.86,slope:-.44,radius:268}];
+  const SPRITE_CHIMNEYS={"bakery-L1-R0.png":[0.753333,0.193333],"bakery-L1-R1.png":[0.486667,0.313333],"bakery-L1-R2.png":[0.256667,0.18],"bakery-L1-R3.png":[0.523333,0.123333],"bakery-L3-R0.png":[0.753333,0.193333],"bakery-L3-R1.png":[0.49,0.313333],"bakery-L3-R2.png":[0.256667,0.18],"bakery-L3-R3.png":[0.523333,0.123333],"cheese-L1-R0.png":[0.743333,0.21],"cheese-L1-R1.png":[0.49,0.313333],"cheese-L1-R2.png":[0.37,0.17],"cheese-L1-R3.png":[0.516667,0.14],"cheese-L5-R0.png":[0.743333,0.196667],"cheese-L5-R1.png":[0.493333,0.303333],"cheese-L5-R2.png":[0.656667,0.223333],"cheese-L5-R3.png":[0.556667,0.176667],"cheese-L8-R0.png":[0.743333,0.19],"cheese-L8-R1.png":[0.493333,0.303333],"cheese-L8-R2.png":[0.27,0.17],"cheese-L8-R3.png":[0.52,0.113333],"cottage-L1-R0.png":[0.75,0.213333],"cottage-L1-R1.png":[0.486667,0.32],"cottage-L1-R2.png":[0.256667,0.206667],"cottage-L1-R3.png":[0.523333,0.113333],"cottage-L3-R0.png":[0.75,0.213333],"cottage-L3-R1.png":[0.486667,0.313333],"cottage-L3-R2.png":[0.256667,0.2],"cottage-L3-R3.png":[0.523333,0.113333],"cottage-L5-R0.png":[0.75,0.213333],"cottage-L5-R1.png":[0.486667,0.313333],"cottage-L5-R2.png":[0.256667,0.2],"cottage-L5-R3.png":[0.523333,0.113333],"cottage-L8-R0.png":[0.75,0.206667],"cottage-L8-R1.png":[0.486667,0.306667],"cottage-L8-R2.png":[0.256667,0.196667],"cottage-L8-R3.png":[0.523333,0.12],"house-L1-R0.png":[0.783333,0.313333],"house-L1-R1.png":[0.403333,0.403333],"house-L1-R2.png":[0.22,0.213333],"house-L1-R3.png":[0.606667,0.163333],"house-L3-R0.png":[0.783333,0.313333],"house-L3-R1.png":[0.403333,0.396667],"house-L3-R2.png":[0.22,0.213333],"house-L3-R3.png":[0.606667,0.163333],"house-L5-R0.png":[0.783333,0.306667],"house-L5-R1.png":[0.403333,0.393333],"house-L5-R2.png":[0.22,0.21],"house-L5-R3.png":[0.606667,0.146667],"house-L8-R0.png":[0.783333,0.293333],"house-L8-R1.png":[0.403333,0.386667],"house-L8-R2.png":[0.22,0.21],"house-L8-R3.png":[0.606667,0.146667],"jam-L1-R0.png":[0.743333,0.21],"jam-L1-R1.png":[0.49,0.313333],"jam-L1-R2.png":[0.356667,0.173333],"jam-L1-R3.png":[0.523333,0.14],"jam-L5-R0.png":[0.743333,0.213333],"jam-L5-R1.png":[0.493333,0.306667],"jam-L5-R2.png":[0.37,0.163333],"jam-L5-R3.png":[0.523333,0.123333],"jam-L8-R0.png":[0.743333,0.213333],"jam-L8-R1.png":[0.49,0.3],"jam-L8-R2.png":[0.416667,0.156667],"jam-L8-R3.png":[0.523333,0.113333]};
   const BUILDING_IMAGES=new Map();
   function buildingImageName(b){
     const level=Math.max(1,Math.floor(Number(b.level)||1));
@@ -1536,7 +1538,16 @@ const balance={spec,consume,get current(){return copy(current);},get active(){re
       const x=pivot.x+(origin.x+dx-pivot.x)*scale+(Number(placement.offsetX)||0),
         y=pivot.y+(origin.y+dy-pivot.y)*scale+(Number(placement.offsetY)||0);
       if(b.id===this.selectedId&&!ghost)tile(c,b.x-.09,b.y-.09,(b.w||d.w||1)+.18,(b.h||d.h||1)+.18,'#faf2a93d','#faee90',2.8);
-      c.drawImage(record.image,x,y,width*scale,height*scale);
+      const sw=width*scale,sh=height*scale;
+      // Rotor plane lies behind the tower in the rear views, in front in the front views.
+      const rotor=b.type==='mill'&&record.name.match(/^mill-L1-R([0-3])\.png$/);
+      const rear=rotor&&[1,2].includes(Number(rotor[1]));
+      if(rear)this._spriteMillRotor(c,b,Number(rotor[1]),x,y,sw,sh,ghost);
+      c.drawImage(record.image,x,y,sw,sh);
+      if(rotor&&!rear)this._spriteMillRotor(c,b,Number(rotor[1]),x,y,sw,sh,ghost);
+      const chimney=SPRITE_CHIMNEYS[record.name];
+      if(chimney&&!ghost)this._chimneyPuffs(c,x+sw*chimney[0],y+sh*chimney[1],sw/1024,b);
+
       // Exported source buildings intentionally omit living animals.
       if(cfg.animals!==false&&['kennel','barn','coop','sheep'].includes(b.type)){
         const m=new BuildingMesh(c,b,d.w,d.h);
@@ -1548,6 +1559,57 @@ const balance={spec,consume,get current(){return copy(current);},get active(){re
         m.flush();
       }
       return true;
+    }
+    _chimneyPuffs(c,x,y,pixelScale,b){
+      // A single tiny cached texture; no gradient allocation or particle array per frame.
+      this._smokeTextures=this._smokeTextures||{};
+      let puff=this._smokeTextures[this.theme];
+      if(!puff){
+        puff=document.createElement('canvas');puff.width=puff.height=64;
+        const g=puff.getContext('2d'),rad=g.createRadialGradient(32,32,2,32,32,31);
+        const rgb=this.theme==='dark'?'219,219,206':'113,111,99';
+        rad.addColorStop(0,'rgba('+rgb+',.75)');rad.addColorStop(.55,'rgba('+rgb+',.4)');rad.addColorStop(1,'rgba('+rgb+',0)');
+        g.fillStyle=rad;g.fillRect(0,0,64,64);this._smokeTextures[this.theme]=puff;
+      }
+      const seed=(Number(b.x)||0)*.17+(Number(b.y)||0)*.31;
+      c.save();const inheritedAlpha=c.globalAlpha;
+      for(let i=0;i<6;i++){
+        const age=((this._time/4.8+i/6+seed)%1+1)%1;
+        // Fade in at the mouth, expand and drift while fading away.
+        const alpha=.68*Math.min(1,age*14)*(1-age)*(1-age);
+        c.globalAlpha=inheritedAlpha*alpha;
+        const r=(9+age*29)*pixelScale,dx=(age*37+Math.sin(age*6+seed)*age*13)*pixelScale;
+        c.drawImage(puff,x+dx-r,y-age*143*pixelScale-r,r*2,r*2);
+      }
+      c.restore();
+    }
+    _spriteMillRotor(c,b,rotation,x,y,w,h,ghost){
+      // Calibrated to the bearing on each body PNG. Unit coordinates are source pixels.
+      const views=SPRITE_MILL_ROTORS, v=views[rotation];if(!v)return;
+      const angle=ghost?0:this._time*.38;
+      c.save();c.translate(x+v.x*w/1024,y+v.y*h/1024);
+      c.transform(w/1024*v.axis, h/1024*v.slope,0,h/1024,0,0);
+      c.rotate(angle);c.lineJoin='round';
+      const poly=(pts,fill,stroke='#60472d',line=3)=>{
+        c.beginPath();c.moveTo(pts[0][0],pts[0][1]);for(let i=1;i<pts.length;i++)c.lineTo(pts[i][0],pts[i][1]);c.closePath();
+        c.fillStyle=fill;c.fill();if(stroke){c.strokeStyle=stroke;c.lineWidth=line;c.stroke();}
+      };
+      for(let k=0;k<4;k++){
+        c.save();c.rotate(k*Math.PI/2);
+        poly([[-7,-9],[7,-9],[7,-v.radius],[-7,-v.radius]],'#af8550');
+        poly([[8,-v.radius],[75,-v.radius+2],[70,-55],[8,-55]],rotation===1?'#b99a68':'#efdaa3');
+        poly([[9,-v.radius+5],[68,-v.radius+7],[65,-v.radius+16],[9,-v.radius+14]],'#f6e4b7',null);
+        for(let j=0;j<5;j++){
+          const sy=-v.radius+30+j*(v.radius-100)/4;
+          poly([[9,sy],[72,sy+1],[72,sy+6],[9,sy+5]],'#b39764',null);
+        }
+        c.restore();
+      }
+      // Small rotating wooden hub with a brass axle cap.
+      poly([[-23,-23],[23,-23],[23,23],[-23,23]],'#b89d72');
+      poly([[-19,-20],[20,-20],[20,-13],[-19,-13]],'#ead4a6',null);
+      c.beginPath();c.arc(0,0,10,0,Math.PI*2);c.fillStyle='#755634';c.fill();
+      c.beginPath();c.arc(-2,-2,4,0,Math.PI*2);c.fillStyle='#d5b87d';c.fill();c.restore();
     }
     _building(c,b,ghost=false){
       if(this._buildingSprite(c,b,ghost))return;
