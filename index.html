@@ -488,7 +488,7 @@ building('complex','Автоматизированный комплекс','🏭
 building('market','Фермерский рынок','🛒','infrastructure',8,3,2,600,35,15,'Помощники приносят излишки со склада. Продажа идёт партиями через интервалы; цена растёт с уровнем.');
 building('kennel','Будка с собакой','🐕','infrastructure',10,1,1,450,20,8,'Накормленная собака охраняет участок. Кормление действует сутки реального времени.');
 function deco(key,name,icon,unlock,coins,w=1,h=1,extra={}){building(key,name,icon,'decoration',unlock,w,h,coins,0,0,'Украшение. Не требуется для дохода или открытия технологий.',extra);}
-deco('flowerbed','Клумба','🌷',1,12);deco('flowerborder','Цветочный бордюр','🌸',1,8,1,1,{passable:true});deco('bush','Садовый куст','🌳',1,15);deco('tree','Декоративное дерево','🌳',3,35);deco('path_wood','Деревянная дорожка','🟫',1,3,1,1,{passable:true});deco('path_stone','Каменная дорожка','⬜',8,7,1,1,{passable:true});deco('path_brick','Кирпичная дорожка','🧱',20,12,1,1,{passable:true});deco('fence','Деревянный забор','🪵',1,8);deco('gate','Ворота','🚪',1,14,1,1,{passable:true});deco('hedge','Живая изгородь','🌿',8,20);deco('lamp','Садовый фонарь','🏮',10,65);deco('bench','Скамейка','🪑',3,28);deco('table','Столик для отдыха','🪑',8,55);deco('gazebo','Беседка','🏡',20,280,2,2);deco('fountain','Фонтан','⛲',35,650,2,2);deco('pond_decor','Декоративный пруд','🐟',25,350,2,2);deco('scarecrow','Пугало','🧑‍🌾',1,18);deco('cart','Садовая тележка','🛒',5,35);deco('sign','Вывеска','🪧',1,12);deco('gnome','Садово-декоративная фигурка','🍄',10,70);
+deco('flowerbed','Клумба','🌷',1,12);deco('flowerborder','Цветочный бордюр','🌸',1,8,1,1,{passable:true});deco('bush','Садовый куст','🌳',1,15);deco('tree','Декоративное дерево','🌳',3,35);deco('path_dirt','Дорожка','🟤',1,3,1,1,{passable:true,desc:'Земля → спилы → камень → кирпич. Дорожки соединяются и ускоряют помощников.'});deco('path_wood','Деревянная дорожка','🟫',1,3,1,1,{passable:true});deco('path_stone','Каменная дорожка','⬜',8,7,1,1,{passable:true});deco('path_brick','Кирпичная дорожка','🧱',20,12,1,1,{passable:true});deco('fence','Деревянный забор','🪵',1,8);deco('gate','Ворота','🚪',1,14,1,1,{passable:true});deco('hedge','Живая изгородь','🌿',8,20);deco('lamp','Садовый фонарь','🏮',10,65);deco('bench','Скамейка','🪑',3,28);deco('table','Столик для отдыха','🪑',8,55);deco('gazebo','Беседка','🏡',20,280,2,2);deco('fountain','Фонтан','⛲',35,650,2,2);deco('pond_decor','Декоративный пруд','🐟',25,350,2,2);deco('scarecrow','Пугало','🧑‍🌾',1,18);deco('cart','Садовая тележка','🛒',5,35);deco('sign','Вывеска','🪧',1,12);deco('gnome','Садово-декоративная фигурка','🍄',10,70);
 function recipe(key,name,buildingId,unlock,inputs,outputs,time,coins=0,extra={}){RECIPES[key]={id:key,name,building:buildingId,unlock,inputs,outputs,time,coins,...extra};BUILDINGS[buildingId].recipes.push(key);}
 recipe('flour','Помол муки','mill',5,{wheat:3},{flour:2},26);
 recipe('feed','Зерновой корм','mill',5,{wheat:2,corn:1},{feed:4},22);
@@ -547,10 +547,70 @@ function weedDelay(s,b){return FARM_RULES.weedSeconds+Math.floor(hash(s.seed,b.x
 function weedStage(b){return Math.max(0,Math.min(2,Math.floor(b.weedStage||0)));}
 function weedTick(s,b,dt){if(b.type!=='plot'||!built(s,b))return;const stage=weedStage(b),rate=FARM_RULES.weedRates[stage],p=b.plant,previous=s.time-dt;if(p?.watered&&p.end>previous&&rate<1){const growing=Math.min(dt,(p.end-previous)/rate),delay=growing*(1-rate);p.start+=delay;p.end+=delay;}if(!Number.isFinite(b.weedAt)){b.weedAt=s.time+weedDelay(s,b);return;}if(s.time>=b.weedAt&&stage<2){b.weedStage=stage+1;b.weedAt=s.time+weedDelay(s,b);}}
 function actionWeed(s,p){const b=buildingById(s,p.id);if(b?.type!=='plot'||!built(s,b))return fail('Выберите готовую грядку');if(!weedStage(b))return fail('Грядка уже чистая');b.weedStage=0;b.weedAt=s.time+weedDelay(s,b);return okay('Грядка прополота. Обычная скорость роста восстановлена',{id:b.id});}
+const ROAD_LEVELS=[
+  {name:'Земля',speed:.10,unlock:1},
+  {name:'Деревянные спилы',speed:.20,unlock:1,cost:{coins:4,wood:1,stone:0}},
+  {name:'Камень',speed:.35,unlock:8,cost:{coins:8,wood:0,stone:1}},
+  {name:'Кирпич',speed:.50,unlock:20,cost:{coins:12,wood:0,stone:2}}
+];
+const ROAD_BASE=new Map([['path_dirt',1],['path_wood',2],['path_stone',3],['path_brick',4]]);
+function roadLevel(b){
+  const base=ROAD_BASE.get(b?.type);
+  return base ? Math.min(ROAD_LEVELS.length,base+(b.level||1)-1) : 0;
+}
+function roadUpgrade(s,b){
+  const level=roadLevel(b),next=ROAD_LEVELS[level];
+  if(!next)return {available:false,reason:'Достигнут максимальный уровень'};
+  const reason=b.upgrade?'Дождитесь окончания улучшения':s.level<next.unlock
+    ?'Нужен уровень игрока '+next.unlock:costReason(s,next.cost);
+  return {available:!reason,reason,cost:next.cost,requiredLevel:next.unlock,toLevel:level+1};
+}
 const navigation=new WeakMap();
-function roadMap(s){let cached=navigation.get(s);if(cached&&cached.list===s.buildings&&cached.count===s.buildings.length)return cached.roads;const roads=new Map();for(const b of s.buildings){const speed={path_wood:FARM_RULES.roadWood,path_stone:FARM_RULES.roadStone,path_brick:FARM_RULES.roadBrick}[b.type];if(speed&&built(s,b))for(let y=b.y;y<b.y+b.h;y++)for(let x=b.x;x<b.x+b.w;x++)roads.set(x+','+y,speed);}navigation.set(s,{list:s.buildings,count:s.buildings.length,roads});return roads;}
+function roadMap(s){let cached=navigation.get(s);if(cached&&cached.list===s.buildings&&cached.count===s.buildings.length)return cached.roads;const roads=new Map();for(const b of s.buildings){const level=roadLevel(b);if(level&&built(s,b))for(let y=b.y;y<b.y+b.h;y++)for(let x=b.x;x<b.x+b.w;x++)roads.set(x+','+y,1+ROAD_LEVELS[level-1].speed);}navigation.set(s,{list:s.buildings,count:s.buildings.length,roads});return roads;}
 function roadSpeed(s,x,y){return roadMap(s).get(Math.floor(x+.5)+','+Math.floor(y+.5))||1;}
-function travelBonus(s,x,y){return Math.min(FARM_RULES.movementMax,(1+dispatchBonus(s))*roadSpeed(s,x,y));}
+function terrainStep(roads,x,y,u,v,boost){
+ const a=roads.get(x+','+y)||1,b=roads.get(u+','+v)||1;
+ const paved=a>1&&b>1?.5:.35;
+ const base=Math.min(FARM_RULES.movementMax,boost);
+ const left=Math.min(FARM_RULES.movementMax,boost*a),right=Math.min(FARM_RULES.movementMax,boost*b);
+ return {time:(1-2*paved)/base+paved/left+paved/right,
+   dirt:1-paved*(Number(a>1)+Number(b>1))};
+}
+function walkRoadAware(w,time,speeds,movement,baseSpeed,boost){
+  const epsilon=1e-8;
+  while(time>epsilon&&w.path.length){
+    const next=w.path[0],dx=next.x-w.x,dy=next.y-w.y,distance=Math.hypot(dx,dy);
+    if(distance<=epsilon){w.x=next.x;w.y=next.y;w.path.shift();continue;}
+    const ux=dx/distance,uy=dy/distance;
+    const x=Math.round(w.x+Math.sign(dx)*epsilon),y=Math.round(w.y+Math.sign(dy)*epsilon);
+    const road=speeds.get(x+','+y);
+    let rate=1;
+    if(road){
+      const u=w.x+Math.sign(dx)*epsilon-x,v=w.y+Math.sign(dy)*epsilon-y;
+      const horizontal=Math.abs(u)<=.35,vertical=Math.abs(v)<=.35;
+      const across=speeds.has((x+Math.sign(u))+','+y);
+      const down=speeds.has(x+','+(y+Math.sign(v)));
+      if((horizontal||across)&&(vertical||down)&&
+        (horizontal||vertical||speeds.has((x+Math.sign(u))+','+(y+Math.sign(v)))))rate=road;
+    }
+    const boundary=(value,center,direction)=>{
+      if(!direction)return Infinity;
+      let limit=(center+Math.sign(direction)*.5-value)/direction;
+      if(road)for(const edge of [-.35,.35]){
+        const crossing=(center+edge-value)/direction;
+        if(crossing>epsilon)limit=Math.min(limit,crossing);
+      }
+      return limit;
+    };
+    const speed=baseSpeed*Math.min(FARM_RULES.movementMax,boost*rate);
+    const travel=Math.min(distance,time*speed,boundary(w.x,x,ux),boundary(w.y,y,uy));
+    if(distance-travel<=epsilon){w.x=next.x;w.y=next.y;w.path.shift();}
+    else{w.x+=ux*travel;w.y+=uy*travel;}
+    movement.push({x:w.x,y:w.y});
+    time-=travel/speed;
+  }
+}
+
 
 function workerCapacity(s){return safe(s.buildings.filter(b=>built(s,b)).reduce((a,b)=>a+statsFor(s,b).workerPlaces,0));}
 function itemValue(items){return Object.entries(items||{}).reduce((v,[k,n])=>v+(ITEMS[k]?.price||0)*n,0);}
@@ -632,13 +692,14 @@ function findPath(s,w,b,blockedCache=new Map()){
  let start={x:Math.round(w.x),y:Math.round(w.y)};if(!passableAt(s,start.x,start.y)){start=nearestEntrance(s,s.buildings.find(b=>b.type==='house')||b)||destinations[0];}
  const open=(x,y)=>{const land=landOf(x,y),lk=landKey(land.cx,land.cy);if(!s.lands[lk])return false;if(!blockedCache.has(lk)){const tiles=new Uint8Array(CHUNK*CHUNK),mark=o=>{for(let yy=Math.max(o.y,land.cy*CHUNK);yy<Math.min(o.y+o.h,(land.cy+1)*CHUNK);yy++)for(let xx=Math.max(o.x,land.cx*CHUNK);xx<Math.min(o.x+o.w,(land.cx+1)*CHUNK);xx++)tiles[(yy-land.cy*CHUNK)*CHUNK+xx-land.cx*CHUNK]=1;};for(const o of landInfo(s,land.cx,land.cy).objects)if(o.type!=='flowers')mark(o);for(const bb of s.buildings)if(!BUILDINGS[bb.type].passable)mark(bb);blockedCache.set(lk,tiles);}return !blockedCache.get(lk)[(y-land.cy*CHUNK)*CHUNK+x-land.cx*CHUNK];};
  // A* minimizes travel time. Dirt distance breaks equal-time ties in favor of roads.
- const maxSpeed=Math.min(FARM_RULES.movementMax,(1+dispatchBonus(s))*Math.max(FARM_RULES.roadWood,FARM_RULES.roadStone,FARM_RULES.roadBrick)),heuristic=(x,y)=>Math.min(...destinations.map(p=>Math.abs(p.x-x)+Math.abs(p.y-y)))/maxSpeed;
+ const roads=roadMap(s),boost=1+dispatchBonus(s);
+ const maxSpeed=Math.min(FARM_RULES.movementMax,boost*(1+ROAD_LEVELS.at(-1).speed)),heuristic=(x,y)=>Math.min(...destinations.map(p=>Math.abs(p.x-x)+Math.abs(p.y-y)))/maxSpeed;
  const heap=[],less=(a,b)=>a.f<b.f-1e-9||Math.abs(a.f-b.f)<1e-9&&(a.dirt<b.dirt||a.dirt===b.dirt&&a.serial<b.serial);let serial=0;
  const push=n=>{heap.push(n);let i=heap.length-1;while(i){const p=(i-1)>>1;if(!less(heap[i],heap[p]))break;[heap[i],heap[p]]=[heap[p],heap[i]];i=p;}};
  const pop=()=>{const n=heap[0],tail=heap.pop();if(heap.length){heap[0]=tail;let i=0;while(true){let j=i,l=i*2+1,r=l+1;if(l<heap.length&&less(heap[l],heap[j]))j=l;if(r<heap.length&&less(heap[r],heap[j]))j=r;if(j===i)break;[heap[i],heap[j]]=[heap[j],heap[i]];i=j;}}return n;};
  const first={...start,g:0,dirt:0,f:heuristic(start.x,start.y),parent:null,serial:serial++},best=new Map([[key(start.x,start.y),first]]);push(first);
  let visited=0;while(heap.length&&visited<32768){const n=pop();if(best.get(key(n.x,n.y))!==n)continue;visited++;if(keys.has(key(n.x,n.y))){const path=[];for(let q=n;q;q=q.parent)path.push({x:q.x,y:q.y});return path.reverse();}
-  for(const [dx,dy]of [[1,0],[0,1],[-1,0],[0,-1]]){const x=n.x+dx,y=n.y+dy;if(!open(x,y))continue;const k=key(x,y),g=n.g+.5/travelBonus(s,n.x,n.y)+.5/travelBonus(s,x,y),dirt=n.dirt+(roadSpeed(s,n.x,n.y)===1?.5:0)+(roadSpeed(s,x,y)===1?.5:0),old=best.get(k);if(old&&(old.g<g-1e-9||Math.abs(old.g-g)<1e-9&&old.dirt<=dirt))continue;const q={x,y,g,dirt,parent:n,f:g+heuristic(x,y),serial:serial++};best.set(k,q);push(q);}
+  for(const [dx,dy]of [[1,0],[0,1],[-1,0],[0,-1]]){const x=n.x+dx,y=n.y+dy;if(!open(x,y))continue;const k=key(x,y),step=terrainStep(roads,n.x,n.y,x,y,boost),g=n.g+step.time,dirt=n.dirt+step.dirt,old=best.get(k);if(old&&(old.g<g-1e-9||Math.abs(old.g-g)<1e-9&&old.dirt<=dirt))continue;const q={x,y,g,dirt,parent:n,f:g+heuristic(x,y),serial:serial++};best.set(k,q);push(q);}
  }return null;
 }
 
@@ -674,8 +735,8 @@ function workerTick(s,dt){
    else if(w.action==='home'){if(!w.unpaid&&schedule(w)){} }
    else if(!['marketPickup','marketDeliver','marketReturn'].includes(w.action)&&taskFor(s,w,b)!==w.action){clear(w);w.waitUntil=s.time;}
   }
-  if(w.target){const b=buildingById(s,w.target);let time=dt;const baseSpeed=TUNING.workerSpeed+Math.min(TUNING.workerMaxBonus,(s.tech||0)*TUNING.workerTechSpeed);
-   while(time>1e-9&&w.path.length){const p=w.path[0],dx=p.x-w.x,dy=p.y-w.y,len=Math.hypot(dx,dy);if(len<1e-8){w.path.shift();continue;}const ux=dx/len,uy=dy/len,cx=Math.floor(w.x+.5+ux*1e-7),cy=Math.floor(w.y+.5+uy*1e-7),speed=baseSpeed*travelBonus(s,cx,cy),edgeX=Math.abs(ux)>1e-8?(cx+(ux>0?.5:-.5)-w.x)/ux:Infinity,edgeY=Math.abs(uy)>1e-8?(cy+(uy>0?.5:-.5)-w.y)/uy:Infinity,travel=Math.min(len,speed*time,Math.max(1e-7,Math.min(edgeX,edgeY)));w.x+=ux*travel;w.y+=uy*travel;time=Math.max(0,time-travel/speed);movement.push({x:w.x,y:w.y});if(travel>=len-1e-8){w.x=p.x;w.y=p.y;w.path.shift();}}
+  if(w.target){const b=buildingById(s,w.target);const baseSpeed=TUNING.workerSpeed+Math.min(TUNING.workerMaxBonus,(s.tech||0)*TUNING.workerTechSpeed);
+   walkRoadAware(w,dt,roadMap(s),movement,baseSpeed,1+dispatchBonus(s));
 
    if(w.path.length)continue;
    const action=w.action;let result={ok:false,msg:'Работа остановлена'};
@@ -696,7 +757,7 @@ function workerTick(s,dt){
  }
 }
 
-function processProduction(s){for(let b of s.buildings){if(b.upgrade&&b.upgrade.end<=s.time){b.level=b.upgrade.toLevel;b.upgrade=null;s.stats.upgrades++;}if(!built(s,b))continue;let room=statsFor(s,b).storage-sum(b.output);while(b.queue.length&&b.queue[0].end<=s.time){let q=b.queue[0],total=sum(q.outputs);if(total>room)break;for(let[k,n]of Object.entries(q.outputs))b.output[k]=(b.output[k]||0)+n;room-=total;b.queue.shift();addXp(s,q.xp||0);s.stats.produced=safe(s.stats.produced+total);}}}
+function processProduction(s){for(let b of s.buildings){if(b.upgrade&&b.upgrade.end<=s.time){b.level=b.upgrade.toLevel;b.upgrade=null;s.stats.upgrades++;if(roadLevel(b))rerouteWorkers(s);}if(!built(s,b))continue;let room=statsFor(s,b).storage-sum(b.output);while(b.queue.length&&b.queue[0].end<=s.time){let q=b.queue[0],total=sum(q.outputs);if(total>room)break;for(let[k,n]of Object.entries(q.outputs))b.output[k]=(b.output[k]||0)+n;room-=total;b.queue.shift();addXp(s,q.xp||0);s.stats.produced=safe(s.stats.produced+total);}}}
 function eventsTick(s){if(s.time<s.event.until)return;let index=(s.event.index||0)+1;const types=['calm','rain','trader','supply','pests'];s.event={type:types[index%types.length],until:s.time+TUNING.eventSeconds,index};if(s.event.type==='rain')for(let b of s.buildings)if(b.plant&&!b.plant.watered){startGrowth(s,b.plant);if(s.tutorial===1)s.tutorial=2;}}
 function step(s,seconds){if(s.paused||!Number.isFinite(seconds)||seconds<=0)return s;let remaining=Math.min(seconds,86400*365); // one call is bounded; there is no offline time credit
 while(remaining>1e-8){let active=s.workers.length||s.buildings.some(b=>b.settings.auto||b.type==='plot');let dt=active?Math.min(1,remaining):Math.min(remaining,Math.max(.01,s.event.until-s.time));s.time=Math.min(SAFE,s.time+dt);remaining-=dt;for(const b of s.buildings)if(b.plant&&!b.plant.watered){b.plant.start=s.time;b.plant.end=s.time+b.plant.duration;}for(const b of s.buildings)weedTick(s,b,dt);processProduction(s);marketTick(s);eventsTick(s);if(s.workers.length)workerTick(s,dt);if(s.time-s.lastAutomation>=ECONOMY.automationInterval){s.lastAutomation=s.time;}}return s;}
@@ -710,7 +771,16 @@ case'waterAll':{let n=0;for(let b of s.buildings)if(b.type==='plot'&&actionWater
 case'harvestAll':{let n=0;for(let b of s.buildings)if(b.type==='plot'&&actionHarvest(s,{id:b.id}).ok)n++;return n?okay('Собран урожай с '+n+' грядок'):fail('Нет созревшего урожая или склад заполнен');}
 case'well':case'refill':{if(action==='well'&&(!b||b.type!=='well'||!built(s,b)))return fail('Выберите готовый колодец');if(!s.buildings.some(b=>b.type==='well'&&built(s,b)))return fail('Нужен колодец');let qty=Math.min(TUNING.wellAmount,freeSpace(s));if(!qty)return fail('Освободите место на складе для воды');addItems(s,{water:qty});return okay('Набрано '+qty+' воды бесплатно',{qty});}
 case'build':{let d=BUILDINGS[p.type];if(!d)return fail('Постройка не найдена');if(s.level<d.unlock)return fail('Откроется на уровне '+d.unlock);if(d.unique&&s.buildings.some(b=>b.type===p.type))return fail('Эта постройка уже есть на ферме');let place=checkPlace(s,p);if(!place.ok)return fail(place.reason);const price=buildPreview(s,p.type);if(!price.available)return fail(price.reason);pay(s,price.cost);let nb=makeBuilding(s,p.type,p.x,p.y,p.rotation||0,true);nb.investment=clone(price.cost);rerouteWorkers(s);s.stats.built++;return okay(d.name+': '+(nb.constructionUntil?'строительство началось':'построено'),{id:nb.id});}
-case'upgrade':{let pre=upgradePreview(s,b);if(!pre.available)return fail(pre.reason);pay(s,pre.cost);for(let k of ['coins','wood','stone'])b.investment[k]=safe((b.investment[k]||0)+(pre.cost[k]||0));b.upgrade={end:s.time+pre.seconds,toLevel:pre.toLevel,cost:clone(pre.cost)};return okay('Модернизация оплачена. Текущие партии сохраняют свои условия.');}
+case'upgrade':{if(roadLevel(b)){
+  const up=roadUpgrade(s,b);
+  if(!up.available)return fail(up.reason);
+  pay(s,up.cost);
+  for(const k of ['coins','wood','stone'])b.investment[k]=safe((b.investment[k]||0)+(up.cost[k]||0));
+  b.level++;
+  s.stats.upgrades++;
+  rerouteWorkers(s);
+  return okay('Дорожка улучшена: '+ROAD_LEVELS[up.toLevel-1].name);
+}let pre=upgradePreview(s,b);if(!pre.available)return fail(pre.reason);pay(s,pre.cost);for(let k of ['coins','wood','stone'])b.investment[k]=safe((b.investment[k]||0)+(pre.cost[k]||0));b.upgrade={end:s.time+pre.seconds,toLevel:pre.toLevel,cost:clone(pre.cost)};return okay('Модернизация оплачена. Текущие партии сохраняют свои условия.');}
 case'move':{if(!b)return fail('Постройка не найдена');let place=checkPlace(s,{type:b.type,x:p.x,y:p.y,rotation:p.rotation??b.rotation,moveId:b.id});if(!place.ok)return fail(place.reason);b.x=p.x;b.y=p.y;b.rotation=p.rotation??b.rotation;Object.assign(b,dimensions(b.type,b.rotation));rerouteWorkers(s);return okay('Объект перенесён. Уровень, содержимое и очереди сохранены.',{id:b.id});}
 case'land':{let {cx,cy}=p;if(!Number.isSafeInteger(cx)||!Number.isSafeInteger(cy))return fail('Выберите соседний участок');if(!inWorld(cx,cy))return fail('Это край карты. Все '+WORLD_SECTORS+' участков ограничены координатами от −'+WORLD_RADIUS+' до +'+WORLD_RADIUS+'.');let key=landKey(cx,cy);if(s.lands[key])return fail('Эта земля уже ваша');if(![[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>s.lands[landKey(cx+dx,cy+dy)]))return fail('Можно покупать только соседнюю землю');let info=landInfo(s,cx,cy);if(!canPay(s,info.cost))return fail(costReason(s,info.cost));pay(s,info.cost);s.lands[key]={cx,cy,cleared:[],forageAt:s.time};addXp(s,TUNING.landXp+Math.floor(info.cost.coins/TUNING.landGoldXpDivisor));return okay('Куплен участок «'+info.name+'». За ним доступны новые земли.',{key});}
 case'forage':{let cx=Number.isInteger(p.cx)?p.cx:0,cy=Number.isInteger(p.cy)?p.cy:0,l=s.lands[landKey(cx,cy)];if(!l)return fail('Сначала купите этот участок');if(l.forageAt>s.time)return fail('Новые материалы появятся через '+Math.ceil(l.forageAt-s.time)+' с');if(freeSpace(s)<1)return fail('Склад заполнен');let given=addItems(s,{wood:TUNING.forageWood,stone:TUNING.forageStone,wheat:TUNING.forageWheat},true);if(!sum(given))return fail('Освободите склад');l.forageAt=s.time+TUNING.forageSeconds;addXp(s,TUNING.forageXp);return okay('Собраны дикорастущие растения и материалы',{items:given});}
@@ -751,7 +821,7 @@ if(s.nextId<=maxId)bad('Счётчик идентификаторов может
 }catch(e){return {ok:false,msg:e.message||'Повреждённое сохранение'};}}
 for(const [type,bonus]of [['path_wood',20],['path_stone',35],['path_brick',50]])BUILDINGS[type].desc+=' Скорость помощника на дорожке +'+bonus+'%. Маршрут выбирается по времени.';
 for(const d of Object.values(BUILDINGS))d.constructionSeconds=d.category==='decoration'||d.id==='plot'?0:Math.min(50,5+d.unlock*.25);
-const FC={FARM_RULES,buildPreview,cottageLimit,weedStage,roadSpeed,findPath,workerMovement,SOCIAL,neighborBonus,dispatchBonus,marketStats,marketJob,TUNING,VERSION,CHUNK,SAFE,DEFAULT_FARM_NAME,FARM_NAME_LIMIT,normalizeFarmName,validFarmName,WORLD_MIN,WORLD_MAX,WORLD_RADIUS,WORLD_SECTORS,inWorld,ECONOMY,BUILDINGS,CROPS,VARIETIES,ITEMS,RECIPES,BIOMES,TASKS,workerVisual,create,step,act,levelNeed,technologyLevel,technology,statsFor,upgradePreview,specializePreview,demolishPreview,cropPreview,recipesFor,batchFor,used,capacity,freeSpace,workerCapacity,landInfo,frontier,checkPlace,validate,fmt,landOf,buildingById,itemValue,overlap};root.FC=FC;if(typeof module!=='undefined'&&module.exports)module.exports=FC;
+const FC={ROAD_LEVELS,roadLevel,roadUpgrade,FARM_RULES,buildPreview,cottageLimit,weedStage,roadSpeed,findPath,workerMovement,SOCIAL,neighborBonus,dispatchBonus,marketStats,marketJob,TUNING,VERSION,CHUNK,SAFE,DEFAULT_FARM_NAME,FARM_NAME_LIMIT,normalizeFarmName,validFarmName,WORLD_MIN,WORLD_MAX,WORLD_RADIUS,WORLD_SECTORS,inWorld,ECONOMY,BUILDINGS,CROPS,VARIETIES,ITEMS,RECIPES,BIOMES,TASKS,workerVisual,create,step,act,levelNeed,technologyLevel,technology,statsFor,upgradePreview,specializePreview,demolishPreview,cropPreview,recipesFor,batchFor,used,capacity,freeSpace,workerCapacity,landInfo,frontier,checkPlace,validate,fmt,landOf,buildingById,itemValue,overlap};root.FC=FC;if(typeof module!=='undefined'&&module.exports)module.exports=FC;
 })(typeof globalThis!=='undefined'?globalThis:this);
 </script>
 <script>
@@ -763,6 +833,7 @@ function makeBalanceCore(FC){
  for(const [k,c]of Object.entries(FC.CROPS))for(const n of ['unlock','cost','time','yield','xp'])add('crops.'+k+'.'+n,labels[n],'Культуры · '+c.name,c[n],['unlock','time','yield'].includes(n)?1:0,n==='time'?864000:1e8,n!=='time');
  for(const[k,v]of Object.entries(FC.ITEMS))for(const n of ['price','buyPrice'])if(v[n]!==undefined)add('items.'+k+'.'+n,labels[n],'Товары · '+v.name,v[n],0,1e9,true);
  for(const[k,d]of Object.entries(FC.BUILDINGS)){
+  if(k==='path_dirt')continue;
   add('buildings.'+k+'.unlock',labels.unlock,'Постройки · '+d.name,d.unlock,1,1e6);
   add('buildings.'+k+'.constructionSeconds',labels.constructionSeconds,'Постройки · '+d.name,d.constructionSeconds,0,864000,false);
   for(const n of ['coins','wood','stone'])add('buildings.'+k+'.cost.'+n,{coins:'Цена, монеты',wood:'Цена, дерево',stone:'Цена, камень'}[n],'Постройки · '+d.name,d.cost[n]);
@@ -844,6 +915,419 @@ const balance={spec,consume,get current(){return copy(current);},get active(){re
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const hash = (a, b, c = 0) => { let n = Math.imul(a | 0, 374761393) ^ Math.imul(b | 0, 668265263) ^ Math.imul(c | 0, 1274126177); n = Math.imul(n ^ (n >>> 13), 1274126177); return ((n ^ (n >>> 16)) >>> 0) / 4294967296; };
   const pt = (x, y, z = 0) => ({ x: (x - y) * TW / 2, y: (x + y) * TH / 2 - z });
+  const roadImage=(()=>{
+function brickPattern() {
+  const colors = ['#aa5740','#be694d','#c97a59','#b36450','#a25948','#cf8360'];
+  const unit = 5.6;
+  let svg = '';
+  // The four diagonals of this grid alternate pairs of horizontal and vertical pavers.
+  for(let y=-2;y<=8;y++) for(let x=-2;x<=8;x++) {
+    const band = ((x-y)%4+4)%4;
+    if(band!==0 && band!==3) continue;
+    const horizontal = band===0;
+    const w = horizontal ? unit*2 : unit;
+    const h = horizontal ? unit : unit*2;
+    const px = x*unit;
+    const py = y*unit;
+    const color = colors[(((x+8)%8)*19+((y+8)%8)*11)%colors.length];
+    svg += '<rect x="'+(px+.38)+'" y="'+(py+.38)+'" width="'+(w-.76)+'" height="'+(h-.76)+'" rx=".48" fill="'+color+'"/>';
+    svg += '<path d="M'+(px+1)+' '+(py+h-1.02)+'h'+(w-2)+'" stroke="#7d3e31" stroke-width=".55" opacity=".49"/>';
+    svg += '<path d="M'+(px+1)+' '+(py+1.15)+'h'+(w-2.35)+'" stroke="#eda985" stroke-width=".51" opacity=".55"/>';
+  }
+  return svg;
+}
+
+function logRound(x,y,r,tone) {
+  const faces = ['#c99760','#d5aa75','#b98554','#dfb785','#c69e6e'];
+  const rings = [0.34,0.57,0.79].map((ratio,i)=>
+    '<ellipse cx="'+(-.3+i*.12)+'" cy="-.2" rx="'+(r*ratio)+'" ry="'+(r*ratio*.94)+'" fill="none" stroke="#92643e" stroke-width=".34" opacity=".5"/>'
+  ).join('');
+  return '<g transform="translate('+x+' '+y+')">'
+    +'<circle cy=".45" r="'+(r+.16)+'" fill="#634d35"/>'
+    +'<circle r="'+r+'" fill="'+faces[tone%faces.length]+'" stroke="#755035" stroke-width=".78"/>'
+    +'<circle r="'+(r-.62)+'" fill="none" stroke="#f0cb94" stroke-width=".43" opacity=".76"/>'
+    +(r>=2.5 ? rings : '')+'<circle cx="-.24" cy="-.22" r=".33" fill="#8c5c3d"/>'
+    +(r>4.3 ? '<path d="M'+(r-.32)+' 0l-1.03 -.3l-.53 .33" stroke="#88603d" stroke-width=".36" fill="none"/>' : '')
+    +'</g>';
+}
+
+function logSwatch() {
+  return [[9,9,6],[24,8,7.2],[40,10,6.4],[5,23,5],[17,22,6.4],[32,22,6.8],[44,24,4.8],[10,37,7],[26,36,7.3],[42,38,6],[13,15,2.3],[36,16,2.2],[16,29,2.1]].map(([x,y,r],i)=>logRound(x,y,r,i)).join('');
+}
+
+function stonePattern() {
+  const step = 12;
+  const cols = 6;
+  const rows = 5;
+  const colors = ['#bcb392','#c6bea0','#a89e80','#b6aa8d','#cebf9f','#aaa78f','#c4b59b'];
+  const wrap = (n,period) => ((n%period)+period)%period;
+  const seed = (x,y) => {
+    const a = wrap(x,cols);
+    const b = wrap(y,rows);
+    return {x:x*step+6+(((a*31+b*13+a*b*7)%19)-9)*.48,
+      y:y*step+6+(((a*11+b*23+a*b*3)%17)-8)*.52,
+      color:colors[(a*7+b*13+a*b*5+(a%2)*2)%colors.length]};
+  };
+  const slabs = [];
+  for(let y=-1;y<=rows;y++) for(let x=-1;x<=cols;x++) {
+    const center = seed(x,y);
+    const {x:cx,y:cy} = center;
+    let points = [[cx-24,cy-24],[cx+24,cy-24],[cx+24,cy+24],[cx-24,cy+24]];
+    // Trim each slab to the midlines between it and its neighbors.
+    for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++) {
+      if(dx===0 && dy===0) continue;
+      const other = seed(x+dx,y+dy);
+      const distance = ([u,v]) =>
+        (u-(cx+other.x)/2)*(other.x-cx)+(v-(cy+other.y)/2)*(other.y-cy);
+      points = clipPolygon(points,distance);
+    }
+    points = points.map(([u,v])=>[cx+(u-cx)*.89,cy+(v-cy)*.89]);
+    slabs.push({points,cx,cy,color:center.color});
+  }
+  return slabs;
+}
+
+function clipPolygon(points,distance) {
+  const clipped = [];
+  points.forEach((p,i)=>{
+    const q = points[(i+1)%points.length];
+    const a = distance(p);
+    const b = distance(q);
+    if(a<=0) clipped.push(p);
+    if((a<0 && b>0) || (a>0 && b<0)) clipped.push(interpolate(p,q,a/(a-b)));
+  });
+  return clipped;
+}
+
+function interpolate(p,q,t) {
+  return [p[0]+(q[0]-p[0])*t,p[1]+(q[1]-p[1])*t];
+}
+
+function stoneFace(points,cx,cy,color) {
+  const rounded = drop => {
+    const xy = ([x,y]) => x.toFixed(2)+' '+(y+drop).toFixed(2);
+    return points.map((p,i)=>{
+      const before = interpolate(p,points[(i+points.length-1)%points.length],.18);
+      const after = interpolate(p,points[(i+1)%points.length],.18);
+      return (i?'L':'M')+xy(before)+'Q'+xy(p)+' '+xy(after);
+    }).join('')+'Z';
+  };
+  return '<path d="'+rounded(.65)+'" fill="#5f6243"/>'
+    +'<path d="'+rounded(0)+'" fill="'+color+'" stroke="#e2d3b4" stroke-width=".43" stroke-opacity=".55"/>'
+    +'<path d="M'+(cx-1.7)+' '+(cy-.6)+'l2.2 -.55m.7 2l1 -.22" stroke="#79735b" stroke-width=".52" stroke-linecap="round" opacity=".33"/>';
+}
+
+const stoneSlabs = stonePattern();
+const coreSlabs = stoneSlabs.filter(({cx,cy})=>cx>0 && cx<72 && cy>0 && cy<60);
+const pavingPatterns = [
+  {width:42,height:44,base:'#b38b59',art:'<path d="M3 7l5-1m14 7l3 1m-10 8l5-1m15 7l4-2M4 32l5 1" fill="none" stroke="#8c6b43" stroke-width="1.25" opacity=".58"/><path d="M11 11l4-1m19-5l3 1m-29 14l3-1m13 13l4-1" fill="none" stroke="#dbb885" stroke-width="1.35" opacity=".67"/><circle cx="29" cy="20" r="1.1" fill="#846442" opacity=".65"/>'},
+  {width:48,height:44,base:'#9b7850',art:logSwatch()},
+  {width:72,height:60,base:'#7f8b55',art:stoneSlabs.map(({points,cx,cy,color})=>stoneFace(points,cx,cy,color)).join('')},
+  {width:44.8,height:44.8,base:'#744b3c',art:brickPattern(),transform:'rotate(45)'}
+];
+const dirs = [[0,-1],[1,0],[0,1],[-1,0]];
+const size = 42;
+const key = (x,y) => x + ',' + y;
+
+function definitions(id,used,grass=false) {
+  const pattern = n => {
+    const p = pavingPatterns[n-1];
+    const transform = p.transform || '';
+    return '<pattern id="'+id+'-m'+n+'" width="'+p.width+'" height="'+p.height+'" patternUnits="userSpaceOnUse" patternTransform="'+transform+'">'
+      +'<rect width="'+p.width+'" height="'+p.height+'" fill="'+p.base+'"/>'+p.art+'</pattern>';
+  };
+  let svg = '<defs>';
+  for(const n of used) svg += pattern(n);
+  if(grass) svg += '<pattern id="'+id+'-grass" width="42" height="42" patternUnits="userSpaceOnUse"><path d="M5 9l2-3m11 19l1-3m16 12l2-4M31 6l1-2M7 35l1-2" stroke="#789651" stroke-width="1" opacity=".47"/><path d="M13 13l3-1m14 12l2-1M20 38l2-2" stroke="#c2cf8a" stroke-width="1.5" opacity=".8"/></pattern>';
+  return svg+'</defs>';
+}
+
+function roadShape(x,y,mask,material,corners=0) {
+  const a = size * .15;
+  const b = size - a;
+  const s = size;
+  const low = -.28;
+  const high = s+.28;
+  const inner = [[a,a],[b,a],[b,b],[a,b]];
+  const outer = [[low,low],[high,low],[high,high],[low,high]];
+  const arms = [[[a,low],[b,low]],[[high,a],[high,b]],[[b,high],[a,high]],[[low,b],[low,a]]];
+  const points = [];
+  for(let side=0;side<4;side++) {
+    const filled = corners & (1<<side);
+    const nextFilled = corners & (1<<((side+1)%4));
+    points.push(filled ? outer[side] : inner[side]);
+    if(mask & (1<<side)) {
+      if(!filled) points.push(arms[side][0]);
+      if(!nextFilled) points.push(arms[side][1]);
+    }
+  }
+  const toWorld = ([u,v]) => [u+x*s,v+y*s];
+  const exact = points.map(p=>toWorld(p.map(n=>Math.min(s,Math.max(0,n)))));
+  const fill = pathOf(points.map(toWorld));
+  const segments = exact.map((p,i)=>{
+    const q = exact[(i+1)%exact.length];
+    const ux = Math.sign(q[0]-p[0]);
+    const uy = Math.sign(q[1]-p[1]);
+    const length = Math.hypot(q[0]-p[0],q[1]-p[1]);
+    const seam = (p[0]===q[0] && p[0]===(x+(uy>0))*s)
+      || (p[1]===q[1] && p[1]===(y+(ux<0))*s);
+    return {p,q,ux,uy,length,seam,neighbor:key(x+uy,y-ux)};
+  }).filter(segment=>segment.length);
+  return {fill,segments,material,x,y,points};
+}
+
+function pathOf(points) {
+  return 'M'+points.map(p=>p.join(' ')).join('L')+'Z';
+}
+
+function pointInTile(x,y,points) {
+  let inside = false;
+  for(let i=0,j=points.length-1;i<points.length;j=i++) {
+    const [ax,ay] = points[i];
+    const [bx,by] = points[j];
+    if((ay>y)!==(by>y) && x<(bx-ax)*(y-ay)/(by-ay)+ax) inside = !inside;
+  }
+  return inside;
+}
+
+function traceEdges(segments) {
+  const starts = new Map();
+  for(const edge of segments) {
+    const id = key(...edge.p);
+    if(!starts.has(id)) starts.set(id,[]);
+    starts.get(id).push(edge);
+  }
+  const remaining = new Set(segments);
+  const loops = [];
+  while(remaining.size) {
+    const first = remaining.values().next().value;
+    const loop = [];
+    let edge = first;
+    do {
+      remaining.delete(edge);
+      loop.push(edge);
+      if(key(...edge.q)===key(...first.p)) break;
+      // Follow the same boundary at a vertex where two contours touch.
+      const turn = next => {
+        const cross = edge.ux*next.uy-edge.uy*next.ux;
+        return cross ? cross*2 : edge.ux*next.ux+edge.uy*next.uy;
+      };
+      edge = (starts.get(key(...edge.q)) || []).filter(next=>remaining.has(next))
+        .sort((a,b)=>turn(b)-turn(a))[0];
+    } while(edge);
+    loops.push(loop);
+  }
+  return loops;
+}
+
+function edgeDistance(x,y,{p,ux,uy,length}) {
+  const dx = x-p[0];
+  const dy = y-p[1];
+  const along = Math.max(0,Math.min(length,dx*ux+dy*uy));
+  return Math.hypot(dx-ux*along,dy-uy*along);
+}
+
+function woodRounds(tiles,boundary) {
+  if(!tiles.length) return '';
+  const buckets = new Map();
+  const bucketSize = 15;
+  const maxRadius = 8.2;
+  const noise = (x,y,salt) => {
+    const h = Math.imul(x+187,1597334677)^Math.imul(y+59,3812015801)^Math.imul(salt+23,2246822519);
+    return ((h^(h>>>15))>>>0)/4294967296;
+  };
+  let svg = '';
+  function freeRadius({x,y,limit,bx,by}) {
+    let r = limit;
+    for(let j=by-2;j<=by+2;j++) for(let i=bx-2;i<=bx+2;i++) {
+      for(const p of buckets.get(key(i,j)) || []) r = Math.min(r,Math.hypot(x-p.x,y-p.y)-p.r-.18);
+    }
+    return r;
+  }
+  function add(candidate,r) {
+    const {x,y,bx,by} = candidate;
+    const id = key(bx,by);
+    if(!buckets.has(id)) buckets.set(id,[]);
+    buckets.get(id).push({x,y,r});
+    svg += logRound(x.toFixed(2),y.toFixed(2),Number(r.toFixed(2)),Math.floor(noise(x*10,y*10,5)*5));
+  }
+  // Set the large rounds first, then fit smaller rounds into the remaining gaps.
+  for(const {step,minRadius,cap} of [{step:12,minRadius:4.7,cap:maxRadius},{step:2.6,minRadius:1.35,cap:5.9}]) {
+    const candidates = [];
+    for(const tile of tiles) {
+      const {x:tx,y:ty,points} = tile;
+      const local = boundary.filter(e=>edgeDistance((tx+.5)*size,(ty+.5)*size,e)<size*.71+maxRadius);
+      for(let j=Math.floor(ty*size/step)-1;j*step<(ty+1)*size;j++) {
+        for(let i=Math.floor(tx*size/step)-1;i*step<(tx+1)*size;i++) {
+          const x = (i+.23+(((j%2)+2)%2)*.38+(noise(i,j,3)-.5)*.32)*step;
+          const y = (j+.45+(noise(i,j,7)-.5)*.52)*step;
+          if(Math.floor(x/size)!==tx || Math.floor(y/size)!==ty || !pointInTile(x-tx*size,y-ty*size,points)) continue;
+          const limit = local.reduce((r,e)=>Math.min(r,edgeDistance(x,y,e)-.56),cap-(step>3 ? noise(i,j,11)*1.6 : 0));
+          if(limit<minRadius) continue;
+          const candidate = {x,y,limit,bx:Math.floor(x/bucketSize),by:Math.floor(y/bucketSize)};
+          const r = freeRadius(candidate);
+          if(r>=minRadius) candidates.push({...candidate,r});
+        }
+      }
+    }
+    if(step<=3) candidates.sort((a,b)=>b.r-a.r);
+    for(const candidate of candidates) {
+      const r = freeRadius(candidate);
+      if(r>=minRadius) add(candidate,r);
+    }
+  }
+  return svg;
+}
+
+function stonePaving(tiles,transitions) {
+  const repeats = new Set();
+  for(const {x,y} of tiles) {
+    for(let j=Math.floor((y*size-9)/60);j*60<(y+1)*size+9;j++) {
+      for(let i=Math.floor((x*size-9)/72);i*72<(x+1)*size+9;i++) repeats.add(key(i,j));
+    }
+  }
+  let svg = '';
+  for(const repeat of repeats) {
+    const [i,j] = repeat.split(',').map(Number);
+    for(const slab of coreSlabs) {
+      const cx = slab.cx+i*72;
+      const cy = slab.cy+j*60;
+      let points = slab.points.map(([x,y])=>[x+i*72,y+j*60]);
+      let fitted = false;
+      for(const edge of transitions) {
+        if(edgeDistance(cx,cy,edge)>12) continue;
+        const along = ([x,y]) => (x-edge.p[0])*edge.ux+(y-edge.p[1])*edge.uy;
+        const inward = ([x,y]) => (y-edge.p[1])*edge.ux-(x-edge.p[0])*edge.uy;
+        const section = clipPolygon(clipPolygon(points,p=>-along(p)),p=>along(p)-edge.length);
+        if(!section.some(p=>inward(p)<1) || !section.some(p=>inward(p)>0)) continue;
+        // Fit and redraw the face at a joint so the last slab has a rounded edge.
+        points = clipPolygon(points,p=>1-inward(p));
+        fitted = true;
+      }
+      if(points.length<3) continue;
+      let x = cx;
+      let y = cy;
+      if(fitted) {
+        const area = points.reduce((sum,p,n)=>{
+          const q = points[(n+1)%points.length];
+          return sum+(p[0]-cx)*(q[1]-cy)-(p[1]-cy)*(q[0]-cx);
+        },0)/2;
+        if(area<11) continue;
+        x = points.reduce((sum,p)=>sum+p[0],0)/points.length;
+        y = points.reduce((sum,p)=>sum+p[1],0)/points.length;
+      }
+      svg += stoneFace(points,x,y,slab.color);
+    }
+  }
+  return svg;
+}
+
+function brickVerge(boundary) {
+  const colors = ['#d08b6b','#c47a5f','#ca8164','#b66c53','#d39473'];
+  const depth = 5.7;
+  const cross = (a,b) => a.ux*b.uy-a.uy*b.ux;
+  let svg = '';
+  for(const loop of traceEdges(boundary)) {
+    // Run one row through the corner and butt the other row against it.
+    const turns = loop.filter((edge,i)=>{
+      const prev = loop[(i+loop.length-1)%loop.length];
+      return cross(prev,edge)!==0;
+    });
+    for(const [i,edge] of turns.entries()) {
+      const {p,ux,uy} = edge;
+      const prev = turns[(i+turns.length-1)%turns.length];
+      const next = turns[(i+1)%turns.length];
+      const start = cross(prev,edge)>0 ? depth : 0;
+      const end = (next.p[0]-p[0])*ux+(next.p[1]-p[1])*uy
+        +(cross(edge,next)<0 ? depth : 0);
+      const length = end-start;
+      if(length<=0) continue;
+      const count = Math.max(1,Math.round(length/4.75));
+      const step = length/count;
+      svg += '<g transform="matrix('+[ux,uy,-uy,ux,p[0],p[1]].join(' ')+')">'
+        +'<rect x="'+start+'" width="'+length+'" height="'+depth+'" fill="#714739"/>';
+      for(let n=0;n<count;n++) {
+        const gap = Math.min(.25,step*.14);
+        const color = colors[(n+Math.round(Math.abs(p[0]*2+p[1])))%colors.length];
+        svg += '<rect class="verge-brick" x="'+(start+n*step+gap)+'" y=".35" width="'+(step-2*gap)
+          +'" height="'+(depth-.7)+'" fill="'+color+'"/>';
+      }
+      svg += '</g>';
+    }
+  }
+  return svg;
+}
+
+function recessedRoads(id,patches,drop) {
+  if(!patches.length) return '';
+  const tiles = new Map(patches.map(p=>[key(p.x,p.y),p]));
+  const terrainEdges = patches.flatMap(p=>p.segments.filter(e=>!e.seam));
+  const terrainLoops = traceEdges(terrainEdges);
+  const outline = terrainLoops.map(loop=>pathOf(loop.map(edge=>edge.p))).join('');
+  const floor = [1,2,3,4].map(material=>{
+    const group = patches.filter(p=>p.material===material);
+    if(!group.length) return '';
+    const boundary = group.flatMap(p=>p.segments.filter(e=>!e.seam || tiles.get(e.neighbor)?.material!==material));
+    const clip = id+'-paving-'+material;
+    const joints = material===3 ? boundary.filter(e=>e.seam) : [];
+    const fill = material===2 || joints.length ? pavingPatterns[material-1].base : 'url(#'+id+'-m'+material+')';
+    const art = material===2 ? woodRounds(group,boundary)
+      : joints.length ? stonePaving(group,joints)
+      : material===4 ? brickVerge(boundary) : '';
+    return '<clipPath id="'+clip+'">'+group.map(p=>'<path d="'+p.fill+'"/>').join('')+'</clipPath>'
+      +'<g clip-path="url(#'+clip+')"><path d="'+group.map(p=>p.fill).join('')+'" fill="'+fill+'"/>'+art+'</g>';
+  }).join('');
+  // Equal shifts along the two map axes project straight down in isometric view.
+  // The opening masks the near wall, and the far wall meets the lowered floor.
+  const walls = drop ? terrainEdges.filter(({ux,uy})=>ux-uy>0).map(({p,q,ux})=>{
+    const lower = ([x,y]) => [x+drop,y+drop];
+    return '<path class="road-wall" d="'+pathOf([p,q,lower(q),lower(p)])+'" fill="'+(ux?'#786042':'#6a533a')+'"/>';
+  }).join('') : '';
+  const floorTransform = drop ? ' transform="translate('+drop+' '+drop+')"' : '';
+  return '<clipPath id="'+id+'-road-cut"><path d="'+outline+'" clip-rule="evenodd"/></clipPath>'
+    +'<g clip-path="url(#'+id+'-road-cut)"><g'+floorTransform+'>'+floor+'</g>'+walls+'</g>'
+    +'<path d="'+outline+'" fill="none" stroke="#58563a" stroke-opacity=".65" stroke-width=".65"/>';
+}
+
+function makePatches(layout){
+  const patches = [];
+  for(const [cell,m] of layout) {
+    const [x,y] = cell.split(',').map(Number);
+    const mask = dirs.reduce((bits,[dx,dy],i) => layout.has(key(x+dx,y+dy)) ? bits | (1<<i) : bits,0);
+    // Each corner belongs to a plaza only if all four tiles around it are roads.
+    let corners = 0;
+    for(let side=0;side<4;side++) {
+      const previous = (side+3)%4;
+      const adjacent = (1<<side) | (1<<previous);
+      if((mask & adjacent)!==adjacent) continue;
+      const [dx,dy] = dirs[side];
+      const [px,py] = dirs[previous];
+      if(layout.has(key(x+dx+px,y+dy+py))) corners |= 1<<side;
+    }
+    patches.push(roadShape(x,y,mask,m,corners));
+  }
+  return patches;
+}
+
+function roadImage(layout,x,y,w,h,done){
+  const width=(w+h)*TW/2+2,height=(w+h)*TH/2+2;
+  const matrix=[TW/(2*size),TH/(2*size),-TW/(2*size),TH/(2*size),1+(h-x+y)*TW/2,1-(x+y)*TH/2];
+  const markup=definitions('road',new Set(layout.values()))
+    +'<clipPath id="area"><rect x="'+x*size+'" y="'+y*size+'" width="'+w*size+'" height="'+h*size+'"/></clipPath>'
+    +'<g transform="matrix('+matrix.join(' ')+')" clip-path="url(#area)">'
+    +recessedRoads('road',makePatches(layout),3.5/.98)+'</g>';
+  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+Math.ceil(width*1.5)+'" height="'+Math.ceil(height*1.5)
+    +'" viewBox="0 0 '+width+' '+height+'">'+markup+'</svg>';
+  const image=new Image();
+  const url=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));
+  image.onload=()=>{URL.revokeObjectURL(url);done();};
+  image.onerror=()=>URL.revokeObjectURL(url);
+  image.src=url;
+  const origin=pt(x,y+h);
+  return {image,x:origin.x-1,y:pt(x,y).y-1,width,height};
+}
+    return roadImage;
+  })();
   function polygon(c, points, fill, stroke, width = 1) {
     if (!points.length) return;
     c.beginPath(); c.moveTo(points[0].x, points[0].y);
@@ -1209,9 +1693,11 @@ const balance={spec,consume,get current(){return copy(current);},get active(){re
       const gy0=Math.floor(Math.min(...corners.map(p=>p.y))/16)-1,gy1=Math.ceil(Math.max(...corners.map(p=>p.y))/16)+1;
       for(let gy=gy0;gy<=gy1;gy++)for(let gx=gx0;gx<=gx1;gx++)if(!G.FC.inWorld(gx,gy))this._paintTerrain(c,gx,gy);
       this._wilderness(c,objects,corners);
-      for(let cy=minY;cy<=maxY;cy++)for(let cx=minX;cx<=maxX;cx++){const land=this._land(s,cx,cy);lands.push(land);this._ground(c,land,pal);for(const o of land.objects||[])if(this._inViewport(o.x,o.y,o.w||1,o.h||1))objects.push({kind:'nature',data:o,depth:o.x+o.y+(o.w||1)+(o.h||1)-.2});for(const b of this._index.get(`${cx},${cy}`)||[]){const def=G.FC.BUILDINGS[b.type]||{};if(!this._inViewport(b.x,b.y,b.w||def.w||1,b.h||def.h||1))continue;buildings.push(b);if(this._isPath(b,def))groundPaths.push({b,def});else if(b.type==='gate')objects.push(...this._gateParts(b));else objects.push({kind:'building',data:b,depth:b.x+b.y+(b.w||def.w||1)+(b.h||def.h||1)});}}
+      for(let cy=minY;cy<=maxY;cy++)for(let cx=minX;cx<=maxX;cx++){const land=this._land(s,cx,cy);lands.push(land);this._ground(c,land,pal);for(const o of land.objects||[])if(this._inViewport(o.x,o.y,o.w||1,o.h||1))objects.push({kind:'nature',data:o,depth:o.x+o.y+(o.w||1)+(o.h||1)-.2});for(const b of this._index.get(`${cx},${cy}`)||[]){const def=G.FC.BUILDINGS[b.type]||{};if(!this._inViewport(b.x,b.y,b.w||def.w||1,b.h||def.h||1))continue;buildings.push(b);if(this._isPath(b))groundPaths.push(b);else if(b.type==='gate')objects.push(...this._gateParts(b));else objects.push({kind:'building',data:b,depth:b.x+b.y+(b.w||def.w||1)+(b.h||def.h||1)});}}
       if(this.camera.zoom>=.5)for(const land of this._terrainVisible)this._terrainDetails(c,land.cx,land.cy);
-      for(const {b,def} of groundPaths)if(!this._buildingSprite(c,b))this._decor(c,b,def);
+      this._roads(c,groundPaths);
+      const selectedRoad=groundPaths.find(b=>b.id===this.selectedId);
+      if(selectedRoad)tile(c,selectedRoad.x,selectedRoad.y,1,1,'#fae56d24','#fae681',2);
       if(this.placement||this.options.getMode?.()==='arrange')this._grid(c,lands,pal);
       for(const land of lands)for(const w of this._workerIndex.get(land.key||`${land.cx},${land.cy}`)||[]){const b=this._byId.get(w.buildingId),display=this._displayWorker(w,workerAlpha),wx=Number.isFinite(display.x)?display.x+.5:(b?b.x+.5:7.5),wy=Number.isFinite(display.y)?display.y+.5:(b?b.y+1:5.5);if(w.atHome&&!display.moving)continue;objects.push({kind:'worker',data:{...display,x:wx,y:wy,visual:G.FC.workerVisual(w)},depth:wx+wy+.3});}
       this._visibleBuildings=buildings.sort((a,b)=>(a.x+a.y+(a.w||1)+(a.h||1))-(b.x+b.y+(b.w||1)+(b.h||1)));
@@ -1657,7 +2143,7 @@ const balance={spec,consume,get current(){return copy(current);},get active(){re
       c.beginPath();c.arc(-2,-2,4,0,Math.PI*2);c.fillStyle='#d5b87d';c.fill();c.restore();
     }
     _building(c,b,ghost=false){
-      if(this._buildingSprite(c,b,ghost)){if(b.type==='plot')this._plotWeeds(c,b);return;}
+      if(!this._isPath(b)&&this._buildingSprite(c,b,ghost)){if(b.type==='plot')this._plotWeeds(c,b);return;}
       const d=G.FC.BUILDINGS[b.type]||{},w=b.w||d.w||1,h=b.h||d.h||1,x=b.x,y=b.y,p=pt(x+w/2,y+h/2),lev=b.level||1;
       if(b.id===this.selectedId&&!ghost){tile(c,x-.09,y-.09,w+.18,h+.18,'#faf2a93d','#faee90',2.8);}
       if(d.category!=='decoration'&&!['plot','orchard','fishery','quarry','well','mill'].includes(b.type))tile(c,x+.04,y+.06,w-.08,h-.08,'#183c281a');
@@ -2763,33 +3249,49 @@ const balance={spec,consume,get current(){return copy(current);},get active(){re
       }
       c.restore();
     }
-    _isPath(b,d){return d.category==='decoration'&&/path|road|дорож/.test(`${b.type} ${d.name||''}`);}
-    _decor(c,b,d){
-      const x=b.x,y=b.y,w=b.w||d.w||1,h=b.h||d.h||1;
-      if(this._isPath(b,d)){
-        const wood=b.type==='path_wood',brick=b.type==='path_brick';
-        const base=wood?'#c69e66':brick?'#b96b45':'#c5c4a3';
-        tile(c,x+.012,y+.012,w-.024,h-.024,base,wood?'#765834':brick?'#86513b':'#818f7b',.45);
-        const mesh=new BuildingMesh(c,b,1,1),P=(u,v)=>pt(...mesh.world([u,v,.04]));
-        if(wood){
-          for(let k=1;k<5;k++)line(c,[P(k/5,.015),P(k/5,.985)],'#6e513772',.6);
-          for(let k=0;k<5;k++){
-            for(const v of [.08,.92]){const p=P((k+.5)/5,v);ellipse(c,p.x,p.y,.45,.35,'#6e5739');}
-            const u=(k+.5)/5;line(c,[P(u-.04,.21),P(u-.025,.44),P(u-.035,.65)],'#e2c08a55',.35);
-          }
-        }else if(brick){
-          for(let row=0;row<4;row++)for(let col=-1;col<4;col++){
-            const u0=Math.max(.012,(col+(row%2)*.5)/3+.008),u1=Math.min(.988,(col+1+(row%2)*.5)/3-.008),v0=row/4+.008,v1=(row+1)/4-.008;
-            if(u1<=u0)continue;polygon(c,[P(u0,v0),P(u1,v0),P(u1,v1),P(u0,v1)],['#b66d4b','#bf7954','#ae6647'][(row+col+3)%3],'#86573b',.45);
-          }
-        }else{
-          for(let row=0;row<3;row++)for(let col=0;col<3;col++){
-            const inset=.015+hash(row,col,2)*.012,u=col/3+inset,v=row/3+inset,
-              du=1/3-inset*2,dv=du;
-            polygon(c,[P(u+.01,v),P(u+du,v+.005),P(u+du-.01,v+dv),P(u,v+dv-.008)],['#bebba6','#b0b4a0','#ccc7b0'][(row*2+col)%3],'#7b837565',.45);
+    _roads(c,visible){
+      if(!visible.length)return;
+      const span=16,halo=2;
+      const chunks=new Set(visible.map(b=>Math.floor(b.x/span)+','+Math.floor(b.y/span)));
+      if(!this._roadImages)this._roadImages=new Map();
+      for(const key of this._roadImages.keys()){
+        if(this._roadImages.size<=Math.max(chunks.size,16))break;
+        if(!chunks.has(key))this._roadImages.delete(key);
+      }
+      for(const chunk of chunks){
+        const [cx,cy]=chunk.split(',').map(Number),x=cx*span,y=cy*span;
+        const layout=new Map();
+        for(let sy=Math.floor((y-halo)/CHUNK);sy<=Math.floor((y+span+halo-1)/CHUNK);sy++){
+          for(let sx=Math.floor((x-halo)/CHUNK);sx<=Math.floor((x+span+halo-1)/CHUNK);sx++){
+            for(const b of this._index.get(sx+','+sy)||[]){
+              if(b.x<x-halo||b.x>=x+span+halo||b.y<y-halo||b.y>=y+span+halo)continue;
+              const level=G.FC.roadLevel(b);
+              if(level)layout.set(b.x+','+b.y,level);
+            }
           }
         }
-        if(b.id===this.selectedId)tile(c,x,y,w,h,'#fae56d24','#fae681',2);
+        const signature=[...layout].sort().join('|');
+        let layer=this._roadImages.get(chunk);
+        if(layer?.signature!==signature){
+          const cells=[...layout.keys()].map(k=>k.split(',').map(Number))
+            .filter(([u,v])=>u>=x&&u<x+span&&v>=y&&v<y+span);
+          const left=Math.min(...cells.map(([u])=>u)),right=Math.max(...cells.map(([u])=>u));
+          const top=Math.min(...cells.map(([,v])=>v)),bottom=Math.max(...cells.map(([,v])=>v));
+          layer={signature,...roadImage(layout,left,top,right-left+1,bottom-top+1,()=>{this._needsDraw=true;})};
+          this._roadImages.set(chunk,layer);
+        }
+        if(layer.image.complete&&layer.image.naturalWidth)c.drawImage(layer.image,layer.x,layer.y,layer.width,layer.height);
+        else for(const b of visible){
+          if(b.x>=x&&b.x<x+span&&b.y>=y&&b.y<y+span)this._decor(c,b,G.FC.BUILDINGS[b.type]);
+        }
+      }
+    }
+    _isPath(b){return G.FC.roadLevel(b)>0;}
+    _decor(c,b,d){
+      const x=b.x,y=b.y,w=b.w||d.w||1,h=b.h||d.h||1;
+      if(this._isPath(b)){
+        const shade=['#b38b59','#9b7850','#bcb392','#b66c53'][G.FC.roadLevel(b)-1];
+        tile(c,x+.15,y+.15,.7,.7,shade,'#58563a',.65);
         return;
       }
       if(b.type==='tree'){this._tree(c,x+w/2,y+h/2,hash(x,y,477),false,.78+(w+h)*.12,true);}
@@ -3071,7 +3573,7 @@ async farm(id){const data=await request('/api/farms/'+encodeURIComponent(id)),s=
 const api=(document.querySelector('meta[name="farm-social-api"]')?.content||'').replace(/\/$/,''),tg=()=>root.Telegram?.WebApp;
 let enabled=false,ready=true,busy=false,revision=0,session='',provider=null,replace=null,status=()=>{},nativeSave=null,queue=Promise.resolve(),lastBackup=0,failedWrite=null,recovery=null,leaseAt=0;
 let sessionKey='';const copy=v=>JSON.parse(JSON.stringify(v));
-const network={get enabled(){return enabled;},get ready(){return ready;},get busy(){return busy;},get configured(){return !!api&&!!tg()?.initData;},get recoveryAvailable(){return !!recovery;},id:null,error:'',rules:null,benefits:{neighbors:0,dogs:[]},balanceSupported:false};
+const network={get enabled(){return enabled;},get ready(){return ready;},get busy(){return busy;},get configured(){return !!api&&!!tg()?.initData;},get recoveryAvailable(){return !!recovery;},id:null,error:'',rules:null,benefits:{neighbors:0,dogs:[]},balanceSupported:false,roadsSupported:false};
 function emit(){root.dispatchEvent(new CustomEvent('farm-network',{detail:{ready,busy,error:network.error}}));}
 function offline(error){if(provider)remember(provider());ready=false;network.error=error.message||String(error);status('error',network.error);emit();}
 async function request(path,body){
@@ -3093,7 +3595,7 @@ async function write(snapshot,key=crypto.randomUUID(),base=revision){
 network.bootstrap=async(local,allowCreate=true)=>{
  if(!network.configured)return local;
  sessionKey='farm-session-'+(tg().initDataUnsafe?.user?.id||'telegram')+'-'+location.pathname;
- const health=await request('/api/health');if(health.features?.raids===1&&health.features?.farmCare!==1)throw new Error('Для дорожек, прополки и зарплаты сначала обновите сервер файлом worker-balance.txt из архива обновления.');network.balanceSupported=health.features?.balance===1;if(network.balanceSupported)await request('/api/balance');if(health.features?.raids!==1){let primary=false;try{primary=localStorage.getItem(sessionKey+'_primary')==='1';}catch(_){}if(primary)throw new Error('Эта ферма уже хранится на сервере. Верните обновлённую версию сервера, чтобы продолжить.');if(!allowCreate&&!local)throw new Error('Не удалось загрузить личное сохранение. Повторите подключение.');return local;}
+ const health=await request('/api/health');network.roadsSupported=health.features?.roads===1;if(health.features?.raids===1&&health.features?.farmCare!==1)throw new Error('Для дорожек, прополки и зарплаты сначала обновите сервер файлом worker-balance.txt из архива обновления.');network.balanceSupported=health.features?.balance===1;if(network.balanceSupported)await request('/api/balance');if(health.features?.raids!==1){let primary=false;try{primary=localStorage.getItem(sessionKey+'_primary')==='1';}catch(_){}if(primary)throw new Error('Эта ферма уже хранится на сервере. Верните обновлённую версию сервера, чтобы продолжить.');if(!allowCreate&&!local)throw new Error('Не удалось загрузить личное сохранение. Повторите подключение.');return local;}
  enabled=true;ready=false;sessionKey='farm-session-'+(tg().initDataUnsafe?.user?.id||'telegram')+'-'+location.pathname;
  try{session=sessionStorage.getItem(sessionKey)||crypto.randomUUID();sessionStorage.setItem(sessionKey,session);recovery=JSON.parse(localStorage.getItem(sessionKey+'_recovery')||'null');}catch(_){session=session||crypto.randomUUID();}
  const data=await request('/api/session/open',{session,state:local||(allowCreate?FC.create():null)});const valid=FC.validate(data.state);if(!valid.ok)throw new Error('Серверное сохранение не прошло проверку: '+valid.msg);
@@ -3198,7 +3700,7 @@ return out;}
 async function loadTop(append=false){const request=++topRequest,offset=append?topState.nextOffset:0;if(offset===null)return;topState.loading=true;topState.error='';if(!append){topState.loaded=false;topState.items=[];}renderPanel();try{const data=await FarmSocial.list(offset);if(request!==topRequest)return;topState.items=append?[...new Map([...topState.items,...data.items].map(v=>[v.id,v])).values()]:data.items;topState.me=data.me;topState.total=data.total;topState.nextOffset=data.nextOffset;topState.loaded=true;}catch(e){if(request===topRequest)topState.error=e.message;}finally{if(request===topRequest){topState.loading=false;if(section==='top')renderPanel();}}}
 function renderVisit(){const s=visitState,b=visitSelectedId?s.buildings.find(v=>v.id===visitSelectedId):null;let out='<div class="card soft"><b>Гостевой просмотр</b><p class="note topgap">Можно осматривать карту и выбирать объекты. Управление чужим хозяйством недоступно.</p></div>';
 if(FarmNet.enabled){const raid=visitProfile.raid;out+='<div class="card gold topgap"><b>Набег на соседа</b>'+note(raidRulesText())+(raid?.allowed?btn('Проверить добычу','raidPreview',{id:visitProfile.id},'secondary full topgap'):note((raid?.reason||'Обновите сведения о ферме.')+(raid?.retryAt?' Осталось: '+secs((raid.retryAt-Date.now())/1000):'')))+'<div class="row wrap topgap">'+btn('Предложить соседство','requestNeighbor',{id:visitProfile.id},'ghost grow')+btn('Соседи','neighbors',{},'ghost grow')+'</div></div>';}
-if(b){out+=sectionTitle(FC.BUILDINGS[b.type].name)+'<div class="mini-grid">'+stat(fmt(b.level),'уровень постройки')+stat(b.w+' × '+b.h,'размер')+'</div>';}else out+='<div class="mini-grid topgap">'+stat(fmt(s.level),'уровень фермы')+stat(fmt(Object.keys(s.lands).length),'участков')+'</div>';
+if(b){out+=sectionTitle(buildingTitle(b))+'<div class="mini-grid">'+stat(fmt(FC.roadLevel(b)||b.level),'уровень постройки')+stat(b.w+' × '+b.h,'размер')+'</div>';}else out+='<div class="mini-grid topgap">'+stat(fmt(s.level),'уровень фермы')+stat(fmt(Object.keys(s.lands).length),'участков')+'</div>';
 out+=note('Снимок обновлён: '+new Date(visitProfile.updatedAt).toLocaleString('ru-RU'));
 out+=sectionTitle('Осмотреть участок')+'<div class="land-visit-list">'+Object.values(s.lands).map(l=>btn(l.cx+' / '+l.cy,'visitLand',{cx:l.cx,cy:l.cy},'ghost sm')).join('')+'</div>';
 return out+'<div class="stack topgap">'+btn('Вернуться на свою ферму','leaveVisit',{},'secondary full')+btn('К топу ферм','leaderboard',{},'ghost full')+'</div>';}
@@ -3250,7 +3752,13 @@ function applyTheme(){
 function chirp(ok=true){if(!sound)return;try{audioContext=audioContext||new(window.AudioContext||window.webkitAudioContext)();const o=audioContext.createOscillator(),g=audioContext.createGain();o.type='sine';o.frequency.setValueAtTime(ok?580:190,audioContext.currentTime);o.frequency.exponentialRampToValueAtTime(ok?850:140,audioContext.currentTime+.11);g.gain.setValueAtTime(.025,audioContext.currentTime);g.gain.exponentialRampToValueAtTime(.0001,audioContext.currentTime+.16);o.connect(g);g.connect(audioContext.destination);o.start();o.stop(audioContext.currentTime+.17);}catch(e){}}
 function toast(msg,error=false){if(!msg)return;const d=document.createElement('div');d.className='toast'+(error?' error':'');d.textContent=msg;$('toasts').appendChild(d);while($('toasts').children.length>3)$('toasts').firstChild.remove();setTimeout(()=>{d.classList.add('exit');setTimeout(()=>d.remove(),300);},error?5400:3300);}
 function scheduleSave(){clearTimeout(saveTimer);saveTimer=setTimeout(()=>FarmSaves.save(state),120);}
-function perform(action,p={},quiet=false){if(!state)return;if(FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy)){toast('Дождитесь подтверждения сервера.',true);return {ok:false};}if(visitState){toast('Вы осматриваете чужую ферму.',true);return {ok:false};}let r;try{r=FC.act(state,action,p);}catch(e){console.error(e);r={ok:false,msg:'Действие не выполнено: '+e.message};}if(r.ok){if(!quiet)toast(r.msg);chirp();if(['build','move','demolish','clear','land','hire','fire'].includes(action))world.refresh?.();scheduleSave();}else{toast(r.msg||'Действие сейчас недоступно.',true);chirp(false);}render(true);return r;}
+function perform(action,p={},quiet=false){if(!state)return;
+  if(FarmNet.configured&&!FarmNet.roadsSupported&&((action==='build'&&p.type==='path_dirt')||
+    (action==='upgrade'&&FC.roadLevel(FC.buildingById(state,p.id))))){
+    toast('Для новых дорожек требуется обновить сервер фермы.',true);
+    return {ok:false};
+  }
+if(FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy)){toast('Дождитесь подтверждения сервера.',true);return {ok:false};}if(visitState){toast('Вы осматриваете чужую ферму.',true);return {ok:false};}let r;try{r=FC.act(state,action,p);}catch(e){console.error(e);r={ok:false,msg:'Действие не выполнено: '+e.message};}if(r.ok){if(!quiet)toast(r.msg);chirp();if(['build','move','demolish','clear','land','hire','fire'].includes(action))world.refresh?.();scheduleSave();}else{toast(r.msg||'Действие сейчас недоступно.',true);chirp(false);}render(true);return r;}
 function showPanel(){ $('panel').classList.remove('mobile-hidden');$('panel').inert=false; }
 function hidePanel(){if($('panel').contains(document.activeElement))document.activeElement.blur();$('panel').classList.add('mobile-hidden');if(innerWidth<981)$('panel').inert=true; }
 function setSection(value){section=value;selectedNature=null;if(value!=='farm')selectedId=null;if(value!=='build')cancelPlacement();showPanel();render(true);}
@@ -3259,7 +3767,7 @@ function startPlacement(type,moveId){const b=moveId?state.buildings.find(b=>b.id
 function renderPlacement(){if(!placement)return;const d=FC.BUILDINGS[placement.type];$('placementBar').classList.remove('hide');$('placementBar').innerHTML='<div class="row spread"><div><b>'+(placement.moveId?'Перенос: ':'Размещение: ')+h(d.name)+'</b><div class="tiny muted" style="margin-top:4px">Зелёный контур — место доступно'+(!placement.moveId?' · Цена: '+fmt(FC.buildPreview(state,placement.type).cost.coins||0)+' монет':'')+(!placement.moveId&&!d.unique?' · Можно ставить подряд':'')+'</div></div><div class="row gap6"><button data-action="rotatePlacement" title="Поворот · R">↻ '+(placement.rotation*90)+'°</button><button data-action="cancelPlacement" title="Отмена · Escape">✕</button></div></div>';}
 function openModal(title,body,confirmLabel,callback,kind=''){lastFrame=performance.now();modalOpen=true;modalCallback=callback||null;$('modalRoot').classList.remove('hide');$('modalRoot').innerHTML='<section class="modal" role="dialog" aria-modal="true" aria-label="'+h(title)+'"><div class="modal-head"><h2>'+h(title)+'</h2><button class="icon-btn" data-action="closeModal" aria-label="Закрыть">'+ico('close',20)+'</button></div><div class="modal-body">'+body+'</div><div class="modal-footer">'+btn(confirmLabel?'Отмена':'Понятно','closeModal',{},'ghost')+(confirmLabel?btn(h(confirmLabel),'confirmModal',{},kind):'')+'</div></section>';setTimeout(()=>$('modalRoot').querySelector('button')?.focus(),0);}
 function closeModal(){lastFrame=performance.now();modalOpen=false;modalCallback=null;$('modalRoot').classList.add('hide');$('modalRoot').innerHTML='';}
-function buildingTitle(b){if(b.type==='plot'&&b.plant)return FC.CROPS[b.plant.crop]?.name||FC.BUILDINGS[b.type].name;return FC.BUILDINGS[b.type]?.name||'Постройка';}
+function buildingTitle(b){if(FC.roadLevel(b))return 'Дорожка · '+FC.ROAD_LEVELS[FC.roadLevel(b)-1].name;if(b.type==='plot'&&b.plant)return FC.CROPS[b.plant.crop]?.name||FC.BUILDINGS[b.type].name;return FC.BUILDINGS[b.type]?.name||'Постройка';}
 function onPick(hit){
   if(FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy))return;
   if(!state||modalOpen)return;
@@ -3313,7 +3821,7 @@ function renderPanel(){
   else if(section==='visit'&&visitState){head=header(visitState.farmName,'Осмотр хозяйства');body=renderVisit();}
   else if(section==='farm'){
     const b=selectedId?state.buildings.find(b=>b.id===selectedId):null;
-    if(b){head=header(buildingTitle(b),'Уровень здания '+b.level+' · участок '+Math.floor(b.x/16)+' / '+Math.floor(b.y/16));body=renderBuilding(b);}
+    if(b){head=header(buildingTitle(b),'Уровень '+(FC.roadLevel(b)||b.level)+' · участок '+Math.floor(b.x/16)+' / '+Math.floor(b.y/16));body=renderBuilding(b);}
     else if(selectedNature){head=header('Природный объект','Материалы рядом с домом');body=renderNature();}
     else{head=header('Хороший день для роста','У каждого большого хозяйства — свой первый росток.');body=renderJournal();}
   }else if(section==='build'){head=header('Строительство','Выберите объект и укажите место на своей земле.');body=renderCatalog();}
@@ -3335,7 +3843,18 @@ function renderJournal(){
   if(state.level>=8)out+=sectionTitle('Помощники',state.workers.length+' / '+FC.workerCapacity(state))+'<div class="card soft">'+note('Назначьте полив, сбор урожая, кормление или перенос. Без работы помощники возвращаются домой. Диспетчерская ускоряет их.')+btn('Работники и приоритеты','workers',{},'full secondary topgap')+'</div>';
   return out;
 }
+function renderRoad(b){
+  const level=FC.roadLevel(b),current=FC.ROAD_LEVELS[level-1],next=FC.ROAD_LEVELS[level],up=FC.roadUpgrade(state,b);
+  let out='<div class="object-hero"><div class="object-art">'+['🟤','🪵','🪨','🧱'][level-1]+'</div><div><div class="object-name">'+h(current.name)+'</div><span class="badge topgap">Покрытие · уровень '+level+'</span></div></div>'
+    +note('Помощники идут по этому покрытию на '+Math.round(current.speed*100)+'% быстрее.');
+  if(next)out+='<div class="card soft topgap"><b>Улучшить до уровня '+(level+1)+' · '+h(next.name)+'</b>'
+    +note('Скорость на покрытии +'+Math.round(next.speed*100)+'%')+'<div class="cost-line">'+cost(up.cost)+'</div>'
+    +btn('Улучшить дорожку','upgradePreview',{id:b.id},'full',!up.available)+(up.reason?note(up.reason):'')+'</div>';
+  return out+sectionTitle('Обустройство')+btn('Переместить','moveStart',{id:b.id},'ghost full')
+    +btn('Убрать дорожку','demolishPreview',{id:b.id},'danger full topgap');
+}
 function renderBuilding(b){
+  if(FC.roadLevel(b))return renderRoad(b);
   const d=FC.BUILDINGS[b.type],st=FC.statsFor(state,b),decor=d.category==='decoration';
   const generation=b.level<2?'Обычная постройка':b.level<4?'Механизированная постройка':b.level<7?'Автоматизированная постройка':'Технологическое поколение '+(Math.floor((b.level-1)/3)+1);
   let out='<div class="object-hero"><div class="object-art">'+d.icon+'</div><div><div class="object-name">'+h(d.name)+'</div><div class="generation-label">'+(decor?'Оформление вашей долины':h(generation))+'</div><span class="badge topgap">'+b.w+' × '+b.h+' клетки</span></div></div>';
@@ -3418,7 +3937,7 @@ function renderCatalog(){
   const cats=[['crops','🌱 Посадки'],['animals','🐔 Животные'],['production','⚙️ Цеха'],['infrastructure','🏠 Инфраструктура'],['decoration','🌷 Украшения']];
   let out='<div class="tabs">'+cats.map(([id,label])=>'<button class="tab '+(category===id?'active':'')+'" data-action="category" data-p="'+h(JSON.stringify({category:id}))+'">'+label+'</button>').join('')+'</div><input class="search" id="catalogSearch" placeholder="Название постройки…" aria-label="Поиск построек" value="'+h(catalogQuery)+'">';
   if(category==='decoration')out+='<div class="card soft" style="margin-bottom:14px">'+note('Создайте деревенский двор, цветочный сад или современное хозяйство. Украшения покупаются за монеты и не влияют на открытие производств.')+'</div>';
-  const entries=Object.entries(FC.BUILDINGS).filter(([id,d])=>d.category===category&&d.name.toLowerCase().includes(catalogQuery.toLowerCase()));
+  const entries=Object.entries(FC.BUILDINGS).filter(([id,d])=>d.category===category&&(!FC.roadLevel({type:id})||id==='path_dirt')&&d.name.toLowerCase().includes(catalogQuery.toLowerCase()));
   out+='<div class="catalog-grid">'+entries.map(([id,d])=>'<button class="catalog-item '+(state.level<d.unlock?'locked':'')+'" data-action="buildingCard" data-p="'+h(JSON.stringify({type:id}))+'"><span class="catalog-icon">'+d.icon+'</span><span class="catalog-name">'+h(d.name)+'</span><span class="catalog-desc">'+h(d.desc.slice(0,90))+(d.desc.length>90?'…':'')+'</span><span class="catalog-level">'+(state.level<d.unlock?'🔒 Открытие: ур. ':'Ур. ')+d.unlock+' · '+d.w+'×'+d.h+(id==='cottage'?' · '+state.buildings.filter(b=>b.type===id).length+'/'+FC.cottageLimit(state).limit:'')+'</span>'+cost(FC.buildPreview(state,d.id).cost)+'</button>').join('')+'</div>';
   if(!entries.length)out+='<div class="empty">По этому названию ничего не найдено.</div>';
   return out;
@@ -3498,6 +4017,14 @@ function renderInventory(){
 }
 function showUpgrade(id){
   const b=state.buildings.find(b=>b.id===id);if(!b)return;
+  if(FC.roadLevel(b)){
+    const p=FC.roadUpgrade(state,b),next=FC.ROAD_LEVELS[p.toLevel-1];
+    if(!next)return;
+    openModal('Улучшить дорожку',note(next.name+' · уровень '+p.toLevel+' · скорость +'+Math.round(next.speed*100)+'%')
+      +'<div class="cost-line">'+cost(p.cost)+'</div>'+(p.reason?note(p.reason):''),
+      p.available?'Улучшить':'',()=>perform('upgrade',{id}));
+    return;
+  }
   const p=FC.upgradePreview(state,b),a=p.now,z=p.after;
   const rows=[['Скорость',a.speed.toFixed(2)+'×',z.speed.toFixed(2)+'×'],['Размер партии',a.batch+'×',z.batch+'×'],['Очередь',fmt(a.queue),fmt(z.queue)],['Внутреннее хранилище',fmt(a.storage),fmt(z.storage)],['Экономия сырья',(a.efficiency*100).toFixed(1)+'%',(z.efficiency*100).toFixed(1)+'%']];
   if(a.capacity||z.capacity)rows.push(['Общий склад',fmt(a.capacity),fmt(z.capacity)]);
