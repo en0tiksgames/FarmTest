@@ -1509,6 +1509,37 @@ function roadImage(layout,x,y,w,h,done){
     }
   }
 
+  // The two illustrated atlases share the same scale and paw anchor.
+  const dogAtlasPaths = ["assets/dog/dog-front.webp", "assets/dog/dog-rear.webp"];
+  const dogFrames = [
+    [[31,158,303,153,-9.24,-5.24,18.665,9.425],[399,158,297,153,-8.87,-5.24,18.295,9.425],[760,158,298,153,-8.932,-5.24,18.357,9.425],[1124,159,295,152,-8.809,-5.178,18.172,9.363],[42,403,276,282,-8.562,-13.186,17.002,17.371],[428,402,252,283,-7.084,-13.248,15.523,17.433],[754,401,289,284,-9.302,-13.31,17.802,17.494],[1152,402,252,283,-7.084,-13.248,15.523,17.433],[45,792,280,255,-8.378,-11.523,17.248,15.708],[408,815,280,232,-8.316,-10.106,17.248,14.291],[770,810,271,237,-8.316,-10.414,16.694,14.599],[1132,776,271,271,-8.316,-12.509,16.694,16.694]],
+    [[40,142,287,165,-8.686,-5.979,17.679,10.164],[403,142,287,165,-8.624,-5.979,17.679,10.164],[765,143,286,164,-8.624,-5.918,17.618,10.102],[1127,143,287,164,-8.624,-5.918,17.679,10.102],[65,391,251,294,-7.146,-13.926,15.462,18.11],[427,391,247,294,-7.146,-13.926,15.215,18.11],[790,391,262,294,-7.084,-13.926,16.139,18.11],[1152,390,246,295,-7.084,-13.987,15.154,18.172],[63,778,265,270,-7.269,-12.447,16.324,16.632],[421,795,270,253,-7.515,-11.4,16.632,15.585],[782,796,271,252,-7.577,-11.338,16.694,15.523],[1151,773,263,275,-7.146,-12.755,16.201,16.94]]
+  ];
+  const dogViews = [
+    {atlas:0,mirror:true},{atlas:1,mirror:false},{atlas:1,mirror:true},{atlas:0,mirror:false}
+  ];
+  const hungryOrder = [0,1,2,3,2,1];
+  const tailOrder = [4,5,6,5];
+  const lickOrder = [
+    [4,.14],[8,.34],
+    [9,.18],[10,.17],[9,.18],[10,.17],[9,.18],[10,.17],
+    [9,.18],[10,.17],[9,.18],[10,.17],[11,.32],[4,.45]
+  ];
+  const lickDuration = lickOrder.reduce((total,[,length])=>total+length,0);
+  function dogFrame(t,fed,front) {
+    if(!fed)return hungryOrder[Math.floor(t/.38)%hungryOrder.length];
+    const phase=(t+2.7)%19;
+    if(phase>=13&&phase<16){
+      let at=(phase-13)*lickDuration/3;
+      for(const [index,duration] of lickOrder){
+        if(at<duration)return index;
+        at-=duration;
+      }
+    }
+    if(front&&t>0&&t%5.3<.16)return 7;
+    return tailOrder[Math.floor(t/.16)%tailOrder.length];
+  }
+
   // External transparent sprites. Coordinates and anchors preserve the original rendering.
   const TREE_FRAMES=Object.freeze([{"x":0,"y":0,"w":196,"h":299,"anchorX":102,"anchorY":267,"index":1,"height":128.9368029739777,"family":"birch","src":"assets/trees/trees-01.png","shadowBaked":true},{"x":0,"y":0,"w":340,"h":318,"anchorX":176,"anchorY":267,"index":2,"height":132.40148698884758,"family":"birch","src":"assets/trees/trees-02.png","shadowBaked":true},{"x":0,"y":0,"w":272,"h":309,"anchorX":139,"anchorY":267,"index":3,"height":129.80297397769516,"family":"birch","src":"assets/trees/trees-03.png","shadowBaked":true},{"x":0,"y":0,"w":183,"h":208,"anchorX":93,"anchorY":178,"index":4,"height":90.13333333333334,"family":"birch","src":"assets/trees/trees-04.png","shadowBaked":true},{"x":0,"y":0,"w":343,"h":323,"anchorX":174,"anchorY":273,"index":5,"height":136.24727272727273,"family":"birch","src":"assets/trees/trees-05.png","shadowBaked":true},{"x":0,"y":0,"w":341,"h":297,"anchorX":166.5,"anchorY":247,"index":6,"height":124.04819277108433,"family":"leaf","src":"assets/trees/trees-06.png","shadowBaked":true},{"x":0,"y":0,"w":261,"h":291,"anchorX":130,"anchorY":250,"index":7,"height":115.47619047619048,"family":"leaf","src":"assets/trees/trees-07.png","shadowBaked":true},{"x":0,"y":0,"w":422,"h":284,"anchorX":216,"anchorY":222,"index":8,"height":109.03571428571429,"family":"leaf","src":"assets/trees/trees-08.png","shadowBaked":true},{"x":0,"y":0,"w":203,"h":283,"anchorX":100,"anchorY":251,"index":9,"height":131.9920948616601,"family":"leaf","src":"assets/trees/trees-09.png","shadowBaked":true},{"x":0,"y":0,"w":349,"h":295,"anchorX":175,"anchorY":245,"index":10,"height":121.82186234817814,"family":"leaf","src":"assets/trees/trees-10.png","shadowBaked":true},{"x":0,"y":0,"w":235,"h":293,"anchorX":118.5,"anchorY":257,"index":11,"height":142.54054054054055,"family":"conifer","src":"assets/trees/trees-11.png","shadowBaked":true},{"x":0,"y":0,"w":345,"h":316,"anchorX":177.5,"anchorY":265,"index":12,"height":144.38951310861424,"family":"conifer","src":"assets/trees/trees-12.png","shadowBaked":true},{"x":0,"y":0,"w":214,"h":229,"anchorX":107,"anchorY":195,"index":13,"height":102.29441624365482,"family":"conifer","src":"assets/trees/trees-13.png","shadowBaked":true},{"x":0,"y":0,"w":336,"h":330,"anchorX":193.5,"anchorY":281,"index":14,"height":153.92226148409895,"family":"conifer","src":"assets/trees/trees-14.png","shadowBaked":true},{"x":0,"y":0,"w":329,"h":311,"anchorX":166,"anchorY":262,"index":15,"height":134.29545454545453,"family":"conifer","src":"assets/trees/trees-15.png","shadowBaked":true},{"x":0,"y":0,"w":257,"h":268,"anchorX":132,"anchorY":228,"index":16,"height":121.18260869565218,"family":"apple","src":"assets/trees/trees-16.png","shadowBaked":true},{"x":0,"y":0,"w":390,"h":281,"anchorX":202,"anchorY":224,"index":17,"height":116.87610619469027,"family":"apple","src":"assets/trees/trees-17.png","shadowBaked":true},{"x":0,"y":0,"w":217,"h":262,"anchorX":109,"anchorY":228,"index":18,"height":129.8608695652174,"family":"apple","src":"assets/trees/trees-18.png","shadowBaked":true},{"x":0,"y":0,"w":354,"h":287,"anchorX":180,"anchorY":235,"index":19,"height":125.94092827004219,"family":"apple","src":"assets/trees/trees-19.png","shadowBaked":true},{"x":0,"y":0,"w":225,"h":246,"anchorX":115,"anchorY":210,"index":20,"height":90.50943396226415,"family":"apple","src":"assets/trees/trees-20.png","shadowBaked":true}]);
   function loadSprite(frame){
@@ -2005,51 +2036,23 @@ function roadImage(layout,x,y,w,h,done){
     }
 
     _dogSprite(m,fed){
-      const c=m.c,t=this._time,phase=(t+2.7)%19,lick=fed&&phase>13&&phase<16,
-        groom=lick?Math.min(1,(phase-13)/.45,(16-phase)/.45):0,
-        breath=Math.sin(t*2.2)*.10,bob=fed?Math.sin(t*3.2)*.20:breath,
-        base=pt(...m.world([.78,.80,0])),parts=[];
-      const project=(x,y,z)=>{const p=pt(...m.world([x,y,z]));return {x:p.x-base.x,y:p.y-base.y};};
-      // Project rounded volumes in the kennel's local axes, including all four rotations.
-      const oval=(x,y,z,rx,ry,rz,col)=>{
-        const q=m.world([x,y,z]),p=project(x,y,z),vx=project(x+rx,y,z),vy=project(x,y+ry,z),vz=project(x,y,z+rz),
-          ax=vx.x-p.x,ay=vx.y-p.y,bx=vy.x-p.x,by=vy.y-p.y,cx=vz.x-p.x,cy=vz.y-p.y,
-          A=ax*ax+bx*bx+cx*cx,B=ax*ay+bx*by+cx*cy,D=ay*ay+by*by+cy*cy,
-          delta=Math.hypot(A-D,2*B),major=Math.sqrt(Math.max(.01,(A+D+delta)/2)),minor=Math.sqrt(Math.max(.01,(A+D-delta)/2)),angle=.5*Math.atan2(2*B,A-D);
-        parts.push({depth:(q[0]+q[1])*24+z*.45,draw:()=>{c.save();c.translate(p.x,p.y);c.rotate(angle);const g=c.createRadialGradient(-major*.25,-minor*.35,.1,0,0,major);g.addColorStop(0,col);g.addColorStop(1,col==='#352b25'?'#241f1b':'#9b683f');c.fillStyle=g;c.beginPath();c.ellipse(0,0,major,minor,0,0,Math.PI*2);c.fill();c.restore();}});
-      };
-      const stroke=(points,col,width,depth)=>parts.push({depth,draw:()=>line(c,points.map(p=>project(...p)),col,width)});
-      const bodyZ=fed?5.4+breath:2.7+breath,headY=.98-.01*groom,headZ=fed?9+bob+(6.9+Math.sin(t*7)*.15-9-bob)*groom:3.6+breath+Math.sin(t*.8)*.12;
-      const tail=fed?Math.sin(t*(lick?4:8))*.09:Math.sin(t*.7)*.008;
-      stroke([[.78,.585,bodyZ],[.79+tail,.505,bodyZ+(fed?3:.2)],[.78+tail*1.5,.455,bodyZ+(fed?4.7:0)]],'#98633d',2.2,(()=>{const q=m.world([.78,.535,bodyZ]);return (q[0]+q[1])*24+bodyZ*.45;})());
-      oval(.78,.695,bodyZ,.095,.145,fed?2.55:2,'#c69760');
-      oval(.78,.81,fed?5.8:3,.087,.085,fed?2.8:1.8,'#e7c994');
-      for(const x of [.715,.845]){
-        if(fed){
-          // Rear thigh joins the rump; the hock bends back into a small grounded paw.
-          oval(x,.63,3.8,.031,.042,1.3,'#c69760');
-          const q=m.world([x,.655,1.8]);
-          stroke([[x,.655,3.2],[x,.615,1.3],[x,.69,.65]],'#c69760',1.25,(q[0]+q[1])*24+1.8*.45);
-          oval(x,.71,.6,.028,.043,.6,'#d5af7b');
-          oval(x,.88,3+(x<.78?groom*.5:0),.026,.033,2.5-(x<.78?groom:0),'#c99a63');
-        }
-        oval(x,fed?.92+(x<.78?.095*groom:0):1.005,.8+(fed&&x<.78?4.6*groom:0),.034,fed?.055:.085,.8,'#e8cfa2');
+      const {atlas,mirror}=dogViews[(m.b.rotation||0)%4];
+      this._dogImages ||= [];
+      let image=this._dogImages[atlas];
+      if(!image){
+        image=new Image();
+        image.decoding='async';
+        image.onload=()=>{this._needsDraw=true;};
+        image.src=dogAtlasPaths[atlas];
+        this._dogImages[atlas]=image;
       }
-      oval(.78,headY,headZ,.085,.09,2.25,'#d4ab73');
-      for(const x of [.685,.875])oval(x,headY-.035,headZ-.35+(fed?Math.sin(t*3.2)*.15:0),.027,.055,1.8,'#95613c');
-      oval(.78,headY+.073,headZ-.85,.062,.064,1.15,'#efdab0');
-      oval(.78,headY+.125,headZ-.35,.027,.023,.43,'#352b25');
-      for(const x of [.733,.827]){
-        if(fed&&(t%5.3)>.16){oval(x,headY+.077,headZ+.65,.011,.012,.29,'#352b25');oval(x-.003,headY+.086,headZ+.76,.003,.004,.08,'#fff1d3');}
-        else stroke([[x-.012,headY+.08,headZ+.45],[x,headY+.086,headZ+.32],[x+.012,headY+.08,headZ+.38]],'#513725',.6,100);
-      }
-      stroke([[.765,headY+.125,headZ-1.15],[.78,headY+.133,headZ-1.35],[.795,headY+.125,headZ-1.15]],'#674833',.55,101);
-      if(fed){const tongue=lick?(Math.sin(t*15)*.5+.5)*.035:.012;oval(.78,headY+.126+tongue,headZ-1.45,.018,.023,lick?.5:.65,'#e58f88');}
-      // Sort the low collar with the body so the moving muzzle always occludes it.
-      const collarZ=fed?5.8:2.1,neck=m.world([.78,.85,collarZ]);
-      stroke([[.715,.84,collarZ],[.78,.86,collarZ-.2],[.845,.84,collarZ]],'#397e79',.65,(neck[0]+neck[1])*24+collarZ*.45);
-      oval(.78,.887,collarZ-.5,.011,.009,.3,'#efc867');
-      parts.sort((a,b)=>a.depth-b.depth);for(const part of parts)part.draw();
+      if(!image.complete||!image.naturalWidth)return;
+      const frame=dogFrame(Math.max(0,this._time||0),fed,atlas===0);
+      const c=m.c;
+      c.save();
+      if(mirror)c.scale(-1,1);
+      c.drawImage(image,...dogFrames[atlas][frame]);
+      c.restore();
     }
 
     _buildingSprite(c,b,ghost=false){
@@ -2074,19 +2077,21 @@ function roadImage(layout,x,y,w,h,done){
       const rotor=b.type==='mill'&&record.name.match(/^mill-L1-R([0-3])\.png$/);
       const rear=rotor&&[1,2].includes(Number(rotor[1]));
       if(rear)this._spriteMillRotor(c,b,Number(rotor[1]),x,y,sw,sh,ghost);
+      const dog=cfg.animals!==false&&b.type==='kennel'?new BuildingMesh(c,b,d.w,d.h):null;
+      if(dog)dog.sprite(.78,.80,0,23,28,()=>this._dogSprite(dog,(b.dogFedUntil||0)>Date.now()));
+      // R2 places the puppy behind the kennel. The PNG silhouette occludes it.
+      if(dog&&b.rotation===2)dog.flush();
       c.drawImage(record.image,x,y,sw,sh);
+      if(dog&&b.rotation!==2)dog.flush();
       if(rotor&&!rear)this._spriteMillRotor(c,b,Number(rotor[1]),x,y,sw,sh,ghost);
       const chimney=SPRITE_CHIMNEYS[record.name];
       if(chimney&&!ghost)this._chimneyPuffs(c,x+sw*chimney[0],y+sh*chimney[1],sw/1024,b);
 
       // Exported source buildings intentionally omit living animals.
-      if(cfg.animals!==false&&['kennel','barn','coop','sheep'].includes(b.type)){
+      if(cfg.animals!==false&&['barn','coop','sheep'].includes(b.type)){
         const m=new BuildingMesh(c,b,d.w,d.h);
-        if(b.type==='kennel')m.sprite(.78,.80,0,23,28,()=>this._dogSprite(m,(b.dogFedUntil||0)>Date.now()));
-        else{
-          const chicken=b.type==='coop',W=d.w-.28,H=d.h-.28;
-          for(let i=0;i<(chicken?3:2);i++)m.sprite(.14+W*(.17+i*(chicken?.22:.32)),.14+H*(.78+(i%2)*.06),1,chicken?12:17,18,()=>this._animal(c,b.type,{x:0,y:0},i+(b.rotation||0)));
-        }
+        const chicken=b.type==='coop',W=d.w-.28,H=d.h-.28;
+        for(let i=0;i<(chicken?3:2);i++)m.sprite(.14+W*(.17+i*(chicken?.22:.32)),.14+H*(.78+(i%2)*.06),1,chicken?12:17,18,()=>this._animal(c,b.type,{x:0,y:0},i+(b.rotation||0)));
         m.flush();
       }
       return true;
