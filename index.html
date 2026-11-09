@@ -2031,8 +2031,14 @@ function roadImage(layout,x,y,w,h,done){
       const wood=['#d8ac6b','#b78549','#916039'],fed=(b.dogFedUntil||0)>Date.now();
       m.box(.04,.08,.53,.62,0,13,wood);for(let z=3;z<13;z+=3){m.front(.045,.703,.52,z,z+.22,'#7d532e');m.face([[.574,.09,z],[.574,.69,z],[.574,.69,z+.22],[.574,.09,z+.22]],'#714a2d',null,0,true);m.face([[.035,.09,z],[.035,.69,z],[.035,.69,z+.22],[.035,.09,z+.22]],'#815730',null,0,true);m.face([[.045,.075,z],[.565,.075,z],[.565,.075,z+.22],[.045,.075,z+.22]],'#815730',null,0,true);}
       m.face([[.17,.708,0],[.44,.708,0],[.44,.708,7],[.37,.708,10],[.24,.708,10],[.17,.708,7]],'#392c23',null,0,true);m.roof(.01,.035,.59,.71,13,8,['#a34d31','#783721']);
-      m.sprite(.78,.80,0,23,28,()=>this._dogSprite(m,fed));
+      this._placeKennelDog(m,fed);
       m.box(.74,.13,.19,.14,0,1.6,['#72a7b4','#517d89','#3d626d']);if(fed)m.box(.765,.15,.14,.09,1.6,2.2,['#c8aa61','#b99a51','#91743c']);});
+    }
+
+    _placeKennelDog(m,fed){
+      // In R2, put the puppy by the outside corner so the roof cannot hide it.
+      const behind=m.b.rotation===2;
+      m.sprite(behind?.96:.78,behind?.10:.80,0,23,28,()=>this._dogSprite(m,fed));
     }
 
     _dogSprite(m,fed){
@@ -2078,7 +2084,7 @@ function roadImage(layout,x,y,w,h,done){
       const rear=rotor&&[1,2].includes(Number(rotor[1]));
       if(rear)this._spriteMillRotor(c,b,Number(rotor[1]),x,y,sw,sh,ghost);
       const dog=cfg.animals!==false&&b.type==='kennel'?new BuildingMesh(c,b,d.w,d.h):null;
-      if(dog)dog.sprite(.78,.80,0,23,28,()=>this._dogSprite(dog,(b.dogFedUntil||0)>Date.now()));
+      if(dog)this._placeKennelDog(dog,(b.dogFedUntil||0)>Date.now());
       // R2 places the puppy behind the kennel. The PNG silhouette occludes it.
       if(dog&&b.rotation===2)dog.flush();
       c.drawImage(record.image,x,y,sw,sh);
