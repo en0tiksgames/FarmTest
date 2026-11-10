@@ -534,8 +534,10 @@ function overlap(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
 function dimensions(type,rotation=0){let d=BUILDINGS[type];return rotation%2?{w:d.h,h:d.w}:{w:d.w,h:d.h};}
 function buildingById(s,n){return s.buildings.find(b=>b.id===n);}
 function built(s,b){return !b.constructionUntil||b.constructionUntil<=s.time;}
-function statsFor(s,b,overrideLevel){const l=overrideLevel||b.level,d=BUILDINGS[b.type];const batch=safe((b.type==='complex'?1:1)+Math.floor((l-1)/3));const speed=1+(ECONOMY.speedLimit-1)*(1-Math.exp(-(l-1)/5));let cap=d.id==='warehouse'?safe(220*power(l,1.35)):d.id==='house'?safe(40*power(l,1.12)):0;let storage=safe((b.type==='complex'?90:30)*power(l,b.type==='complex'?2.4:1.2));return {level:l,speed,batch,queue:Math.min(256,2+Math.floor((l-1)/2)),storage,efficiency:ECONOMY.efficiencyLimit*(1-Math.exp(-(l-1)/9)),capacity:cap,workerPlaces:b.type==='house'?2+Math.floor((l-1)/2):b.type==='cottage'?3+Math.floor((l-1)*1.5):0,production:safe(batch*speed*100)/100,newRecipes:b.type==='bakery'&&l>=2?['Домашняя сдоба']:[],automation:l>=4};}
-function capacity(s){return safe(ECONOMY.baseStorage+s.buildings.filter(b=>built(s,b)).reduce((a,b)=>a+statsFor(s,b).capacity,0));}
+function statsFor(s,b,overrideLevel){const l=overrideLevel||b.level;const batch=safe(1+Math.floor((l-1)/3));const speed=1+(ECONOMY.speedLimit-1)*(1-Math.exp(-(l-1)/5));let storage=safe((b.type==='complex'?90:30)*power(l,b.type==='complex'?2.4:1.2));return {level:l,speed,batch,queue:Math.min(256,2+Math.floor((l-1)/2)),storage,efficiency:ECONOMY.efficiencyLimit*(1-Math.exp(-(l-1)/9)),capacity:storageCapacity(b.type,l),workerPlaces:workerPlaces(b.type,l),production:safe(batch*speed*100)/100,newRecipes:b.type==='bakery'&&l>=2?['Домашняя сдоба']:[],automation:l>=4};}
+function storageCapacity(type,level){return type==='warehouse'?safe(220*power(level,1.35)):type==='house'?safe(40*power(level,1.12)):0;}
+function workerPlaces(type,level){return type==='house'?2+Math.floor((level-1)/2):type==='cottage'?3+Math.floor((level-1)*1.5):0;}
+function capacity(s){let total=0;for(const b of s.buildings)if(built(s,b))total+=storageCapacity(b.type,b.level);return safe(ECONOMY.baseStorage+total);}
 function used(s){return sum(s.items);}
 function freeSpace(s){return Math.max(0,capacity(s)-used(s));}
 
@@ -576,7 +578,26 @@ function roadUpgrade(s,b){
   return {available:!reason,reason,cost:next.cost,requiredLevel:next.unlock,toLevel:level+1};
 }
 const navigation=new WeakMap();
-function roadMap(s){let cached=navigation.get(s);if(cached&&cached.list===s.buildings&&cached.count===s.buildings.length)return cached.roads;const roads=new Map();for(const b of s.buildings){const level=roadLevel(b);if(level&&built(s,b))for(let y=b.y;y<b.y+b.h;y++)for(let x=b.x;x<b.x+b.w;x++)roads.set(x+','+y,1+ROAD_LEVELS[level-1].speed);}navigation.set(s,{list:s.buildings,count:s.buildings.length,roads});return roads;}
+function navigationIndex(s){
+  let index=navigation.get(s);
+  if(!index||index.list!==s.buildings||index.count!==s.buildings.length){
+    index={list:s.buildings,count:s.buildings.length,blocked:new Map(),roads:null,nextRoadAt:Infinity,time:s.time};
+    navigation.set(s,index);
+  }
+  return index;
+}
+function roadMap(s){
+  const index=navigationIndex(s);
+  if(index.roads&&s.time>=index.time&&s.time<index.nextRoadAt)return index.roads;
+  const roads=new Map();let nextRoadAt=Infinity;
+  for(const b of s.buildings){
+    const level=roadLevel(b);if(!level)continue;
+    if(!built(s,b)){nextRoadAt=Math.min(nextRoadAt,b.constructionUntil);continue;}
+    for(let y=b.y;y<b.y+b.h;y++)for(let x=b.x;x<b.x+b.w;x++)roads.set(x+','+y,1+ROAD_LEVELS[level-1].speed);
+  }
+  index.roads=roads;index.nextRoadAt=nextRoadAt;index.time=s.time;
+  return roads;
+}
 function roadSpeed(s,x,y){return roadMap(s).get(Math.floor(x+.5)+','+Math.floor(y+.5))||1;}
 function terrainStep(roads,x,y,u,v,boost){
  const a=roads.get(x+','+y)||1,b=roads.get(u+','+v)||1;
@@ -622,7 +643,7 @@ function walkRoadAware(w,time,speeds,movement,baseSpeed,boost){
 }
 
 
-function workerCapacity(s){return safe(s.buildings.filter(b=>built(s,b)).reduce((a,b)=>a+statsFor(s,b).workerPlaces,0));}
+function workerCapacity(s){let total=0;for(const b of s.buildings)if(built(s,b))total+=workerPlaces(b.type,b.level);return safe(total);}
 function itemValue(items){return Object.entries(items||{}).reduce((v,[k,n])=>v+(ITEMS[k]?.price||0)*n,0);}
 function canPay(s,cost){if(s.coins<(cost.coins||0))return false;for(let k of ['wood','stone'])if((s.items[k]||0)<(cost[k]||0))return false;return true;}
 function costReason(s,cost){if(s.coins<(cost.coins||0))return 'Недостаточно монет';for(let k of ['wood','stone'])if((s.items[k]||0)<(cost[k]||0))return 'Не хватает: '+ITEMS[k].name.toLowerCase();return '';}
@@ -635,7 +656,7 @@ function technology(s){const next=(s.tech||0)+1;const requiredLevel=100+25*(next
 function generatedRecipe(g){let mult=1+Math.floor((g-1)/2);const inputs={bread:4*mult,cheese:2*mult,jam:2*mult,cloth:2*mult,honey:2*mult};if(g%3===0)inputs.fish=mult;if(g%3===1)inputs.herbs=2*mult;let baseValue=itemValue(inputs);let output=safe(Math.ceil((baseValue+TUNING.generatedBonus*power(g,TUNING.generatedExponent))/ITEMS.supplies.price));return {id:'supply_gen_'+g,name:'Комплект поставки · поколение '+g,building:'complex',unlock:100+25*(g-1),requiredTech:g,inputs,outputs:{supplies:output},time:TUNING.generatedSeconds+Math.min(TUNING.generatedSecondsMax,TUNING.generatedSecondsStep*(g-1)),coins:0,generation:g};}
 function generationId(key){if(typeof key!=='string'||!/^supply_gen_[1-9][0-9]*$/.test(key))return 0;let g=Number(key.slice(11));return Number.isSafeInteger(g)&&g>=2?g:0;}
 function recipeAvailability(s,b,r){return {...r,available:s.level>=r.unlock&&b.level>=(r.buildingLevel||1)&&s.tech>=(r.requiredTech||0),reason:s.level<r.unlock?'Нужен уровень '+r.unlock:b.level<(r.buildingLevel||1)?'Нужен уровень здания '+r.buildingLevel:s.tech<(r.requiredTech||0)?'Исследуйте поколение '+r.requiredTech:''};}
-function recipesFor(s,b){if(!b||!BUILDINGS[b.type])return[];let arr=BUILDINGS[b.type].recipes.map(k=>RECIPES[k]).map(r=>({...r}));if(b.type==='complex'){let max=Math.max(1,Math.min(technologyLevel(s.level),s.tech||0));let gens=new Set();for(let g=Math.max(2,max-3);g<=max;g++)gens.add(g);let selected=generationId(b.settings.recipe);if(selected&&selected<=max)gens.add(selected);for(let g of [...gens].sort((a,c)=>a-c))arr.push(generatedRecipe(g));}return arr.map(r=>recipeAvailability(s,b,r));}
+function recipesFor(s,b){if(!b||!BUILDINGS[b.type])return[];let arr=BUILDINGS[b.type].recipes.map(k=>RECIPES[k]);if(b.type==='complex'){let max=Math.max(1,Math.min(technologyLevel(s.level),s.tech||0));let gens=new Set();for(let g=Math.max(2,max-3);g<=max;g++)gens.add(g);let selected=generationId(b.settings.recipe);if(selected&&selected<=max)gens.add(selected);for(let g of [...gens].sort((a,c)=>a-c))arr.push(generatedRecipe(g));}return arr.map(r=>recipeAvailability(s,b,r));}
 function batchFor(s,b,recipeId){let r=recipesFor(s,b).find(x=>x.id===recipeId);if(!r&&b.type==='complex'&&generationId(recipeId))r=recipeAvailability(s,b,generatedRecipe(generationId(recipeId)));if(!r)return null;let st=statsFor(s,b),soil=landInfo(s,...Object.values(landOf(b.x,b.y))).biome;let yieldBonus=1;if(b.type==='orchard'&&soil==='forest')yieldBonus=TUNING.forestYield;if(b.type==='apiary'&&soil==='flowers')yieldBonus=TUNING.flowersYield;if(b.type==='quarry'&&soil==='rocky')yieldBonus=TUNING.rockyYield;if(b.type==='complex'&&soil==='industrial')yieldBonus=TUNING.industrialYield;
 // Specialization is fixed on the building when selected, not secretly scaled by player level.
 let sp=b.settings.specialization||'balanced',spGeneration=b.settings.specializationGeneration||0;if(sp==='volume')yieldBonus*=TUNING.volumeYield+Math.min(TUNING.volumeTechMax,spGeneration*TUNING.volumeTechBonus);
@@ -692,24 +713,39 @@ function actionDemolish(s,p){let b=buildingById(s,p.id),pre=demolishPreview(s,b)
 /* Помощники: цель резервируется за одним работником. Все расходующие ресурсы
    действия выполняются теми же атомарными командами, что и ручные кнопки. */
 const TASKS={all:'Любая работа',water:'Полив',harvest:'Сбор урожая',feed:'Кормление и запуск партий',transport:'Перенос продукции',market:'Доставка на рынок',weed:'Прополка'};
-function passableAt(s,x,y){let c=landOf(x,y);if(!s.lands[landKey(c.cx,c.cy)])return false;for(let b of s.buildings)if(x>=b.x&&x<b.x+b.w&&y>=b.y&&y<b.y+b.h&&!BUILDINGS[b.type].passable)return false;for(let o of landInfo(s,c.cx,c.cy).objects)if(o.type!=='flowers'&&x>=o.x&&x<o.x+o.w&&y>=o.y&&y<o.y+o.h)return false;return true;}
-function entrancePoints(s,b){let points=[];for(let x=b.x;x<b.x+b.w;x++)points.push({x,y:b.y-1},{x,y:b.y+b.h});for(let y=b.y;y<b.y+b.h;y++)points.push({x:b.x-1,y},{x:b.x+b.w,y});return points.filter(p=>passableAt(s,p.x,p.y));}
+function passableAt(s,x,y,cache=navigationIndex(s).blocked){
+  const {cx,cy}=landOf(x,y),key=landKey(cx,cy);if(!s.lands[key])return false;
+  const left=cx*CHUNK,top=cy*CHUNK;
+  let tiles=cache.get(key);
+  if(!tiles){
+    tiles=new Uint8Array(CHUNK*CHUNK);
+    const mark=o=>{for(let y=Math.max(o.y,top);y<Math.min(o.y+o.h,top+CHUNK);y++)for(let x=Math.max(o.x,left);x<Math.min(o.x+o.w,left+CHUNK);x++)tiles[(y-top)*CHUNK+x-left]=1;};
+    for(const o of landInfo(s,cx,cy).objects)if(o.type!=='flowers')mark(o);
+    for(const b of s.buildings)if(!BUILDINGS[b.type].passable)mark(b);
+    cache.set(key,tiles);
+  }
+  return !tiles[(y-top)*CHUNK+x-left];
+}
+function entrancePoints(s,b,cache=navigationIndex(s).blocked){let points=[];for(let x=b.x;x<b.x+b.w;x++)points.push({x,y:b.y-1},{x,y:b.y+b.h});for(let y=b.y;y<b.y+b.h;y++)points.push({x:b.x-1,y},{x:b.x+b.w,y});return points.filter(p=>passableAt(s,p.x,p.y,cache));}
 function nearestEntrance(s,b,from={x:b.x,y:b.y+b.h}){let points=entrancePoints(s,b);points.sort((a,c)=>(Math.abs(a.x-from.x)+Math.abs(a.y-from.y))-(Math.abs(c.x-from.x)+Math.abs(c.y-from.y)));return points[0]||null;}
 function rerouteWorkers(s){navigation.delete(s);for(let w of s.workers){w.target=null;w.action=null;w.path=[];w.waitUntil=s.time;}}
-function findPath(s,w,b,blockedCache=new Map()){
- const destinations=entrancePoints(s,b);if(!destinations.length)return null;
+function findPath(s,w,b,blockedCache=navigationIndex(s).blocked,boost=1+dispatchBonus(s)){
+ const destinations=entrancePoints(s,b,blockedCache);if(!destinations.length)return null;
  const keys=new Set(destinations.map(p=>p.x+','+p.y)),key=(x,y)=>x+','+y;
  let start={x:Math.round(w.x),y:Math.round(w.y)};if(!passableAt(s,start.x,start.y)){start=nearestEntrance(s,s.buildings.find(b=>b.type==='house')||b)||destinations[0];}
- const open=(x,y)=>{const land=landOf(x,y),lk=landKey(land.cx,land.cy);if(!s.lands[lk])return false;if(!blockedCache.has(lk)){const tiles=new Uint8Array(CHUNK*CHUNK),mark=o=>{for(let yy=Math.max(o.y,land.cy*CHUNK);yy<Math.min(o.y+o.h,(land.cy+1)*CHUNK);yy++)for(let xx=Math.max(o.x,land.cx*CHUNK);xx<Math.min(o.x+o.w,(land.cx+1)*CHUNK);xx++)tiles[(yy-land.cy*CHUNK)*CHUNK+xx-land.cx*CHUNK]=1;};for(const o of landInfo(s,land.cx,land.cy).objects)if(o.type!=='flowers')mark(o);for(const bb of s.buildings)if(!BUILDINGS[bb.type].passable)mark(bb);blockedCache.set(lk,tiles);}return !blockedCache.get(lk)[(y-land.cy*CHUNK)*CHUNK+x-land.cx*CHUNK];};
  // A* minimizes travel time. Dirt distance breaks equal-time ties in favor of roads.
- const roads=roadMap(s),boost=1+dispatchBonus(s);
- const maxSpeed=Math.min(FARM_RULES.movementMax,boost*(1+ROAD_LEVELS.at(-1).speed)),heuristic=(x,y)=>Math.min(...destinations.map(p=>Math.abs(p.x-x)+Math.abs(p.y-y)))/maxSpeed;
+ const roads=roadMap(s),maxSpeed=Math.min(FARM_RULES.movementMax,boost*(1+ROAD_LEVELS.at(-1).speed));
+ const heuristic=(x,y)=>{
+  let distance=Infinity;
+  for(const p of destinations)distance=Math.min(distance,Math.abs(p.x-x)+Math.abs(p.y-y));
+  return distance/maxSpeed;
+ };
  const heap=[],less=(a,b)=>a.f<b.f-1e-9||Math.abs(a.f-b.f)<1e-9&&(a.dirt<b.dirt||a.dirt===b.dirt&&a.serial<b.serial);let serial=0;
  const push=n=>{heap.push(n);let i=heap.length-1;while(i){const p=(i-1)>>1;if(!less(heap[i],heap[p]))break;[heap[i],heap[p]]=[heap[p],heap[i]];i=p;}};
  const pop=()=>{const n=heap[0],tail=heap.pop();if(heap.length){heap[0]=tail;let i=0;while(true){let j=i,l=i*2+1,r=l+1;if(l<heap.length&&less(heap[l],heap[j]))j=l;if(r<heap.length&&less(heap[r],heap[j]))j=r;if(j===i)break;[heap[i],heap[j]]=[heap[j],heap[i]];i=j;}}return n;};
  const first={...start,g:0,dirt:0,f:heuristic(start.x,start.y),parent:null,serial:serial++},best=new Map([[key(start.x,start.y),first]]);push(first);
  let visited=0;while(heap.length&&visited<32768){const n=pop();if(best.get(key(n.x,n.y))!==n)continue;visited++;if(keys.has(key(n.x,n.y))){const path=[];for(let q=n;q;q=q.parent)path.push({x:q.x,y:q.y});return path.reverse();}
-  for(const [dx,dy]of [[1,0],[0,1],[-1,0],[0,-1]]){const x=n.x+dx,y=n.y+dy;if(!open(x,y))continue;const k=key(x,y),step=terrainStep(roads,n.x,n.y,x,y,boost),g=n.g+step.time,dirt=n.dirt+step.dirt,old=best.get(k);if(old&&(old.g<g-1e-9||Math.abs(old.g-g)<1e-9&&old.dirt<=dirt))continue;const q={x,y,g,dirt,parent:n,f:g+heuristic(x,y),serial:serial++};best.set(k,q);push(q);}
+  for(const [dx,dy]of [[1,0],[0,1],[-1,0],[0,-1]]){const x=n.x+dx,y=n.y+dy;if(!passableAt(s,x,y,blockedCache))continue;const k=key(x,y),step=terrainStep(roads,n.x,n.y,x,y,boost),g=n.g+step.time,dirt=n.dirt+step.dirt,old=best.get(k);if(old&&(old.g<g-1e-9||Math.abs(old.g-g)<1e-9&&old.dirt<=dirt))continue;const q={x,y,g,dirt,parent:n,f:g+heuristic(x,y),serial:serial++};best.set(k,q);push(q);}
  }return null;
 }
 
@@ -718,20 +754,20 @@ const workerVisuals=new WeakMap(),workerMovements=new WeakMap();
 function workerMovement(w){return workerMovements.get(w)||null;}
 function workerVisual(w){return workerVisuals.get(w)||null;}
 function neighborBonus(){return Math.min(TUNING.neighborGrowthMax,Math.max(0,SOCIAL.neighbors)*TUNING.neighborGrowthPer);}
-function dispatchBonus(s){const level=Math.max(0,...s.buildings.filter(b=>b.type==='automation'&&built(s,b)).map(b=>b.level));return level?Math.min(TUNING.dispatchMax,TUNING.dispatchBase+(level-1)*TUNING.dispatchPerLevel):0;}
+function dispatchBonus(s){let level=0;for(const b of s.buildings)if(b.type==='automation'&&built(s,b))level=Math.max(level,b.level);return level?Math.min(TUNING.dispatchMax,TUNING.dispatchBase+(level-1)*TUNING.dispatchPerLevel):0;}
 function marketStats(b){return {capacity:safe(TUNING.marketCapacity*b.level),carry:TUNING.marketCarry,price:Math.min(1,TUNING.marketPriceBase+(b.level-1)*TUNING.marketPriceStep),interval:TUNING.marketInterval,batch:safe(TUNING.marketSaleBatch*b.level)};}
 function marketRoom(s,b){return Math.max(0,marketStats(b).capacity-sum(b.output)-s.workers.filter(w=>w.marketId===b.id).reduce((n,w)=>n+sum(w.cargo),0));}
 function marketJob(s,w){if(!['all','transport','market'].includes(w.task))return null;for(const market of s.buildings){if(market.type!=='market'||!built(s,market)||market.settings.auto===false||w.buildingId&&w.buildingId!==market.id)continue;const room=marketRoom(s,market);if(room<1)continue;for(const[item,keep]of Object.entries(market.settings.limits||{})){const available=(s.items[item]||0)-keep;if(available>0&&ITEMS[item]?.price>0)return {market,item,qty:Math.min(available,room,TUNING.marketCarry)};}}return null;}
 function marketTick(s){for(const b of s.buildings){if(b.type!=='market'||!built(s,b)||!sum(b.output))continue;const st=marketStats(b);if(!Number.isFinite(b.marketNextAt)){b.marketNextAt=s.time+st.interval;continue;}if(s.time<b.marketNextAt)continue;const cycles=1+Math.floor((s.time-b.marketNextAt)/st.interval);b.marketNextAt+=cycles*st.interval;let budget=Math.min(sum(b.output),st.batch*cycles);for(const[item,stored]of Object.entries(b.output)){if(budget<=0)break;const price=ITEMS[item].price*st.price*(s.event.type==='trader'?TUNING.traderSale:1);if(price<=0)continue;const n=Math.min(stored,budget,Math.floor((SAFE-s.coins)/price));if(n<=0)continue;const value=safe(n*price);b.output[item]-=n;if(!b.output[item])delete b.output[item];budget-=n;addCoins(s,value);s.stats.earned=safe(s.stats.earned+value);addXp(s,Math.floor(value/TUNING.saleXpDivisor));}}}
 function workerTick(s,dt){
- const cache=new Map(),boost=1+dispatchBonus(s),reserved=new Set(s.workers.filter(w=>w.target&&!['home','marketPickup','marketDeliver','marketReturn'].includes(w.action)).map(w=>w.target+':'+w.action));
- const route=(w,b,action)=>{const path=findPath(s,w,b,cache);if(!path)return false;w.target=b.id;w.action=action;w.path=path;w.atHome=false;w.status=action==='home'?'Идёт домой':action==='marketPickup'?'Идёт на склад за излишками':action==='marketDeliver'?'Несёт товары на рынок':action==='marketReturn'?'Возвращает товары на склад':'Идёт к объекту «'+BUILDINGS[b.type].name+'»';return true;};
+ const boost=1+dispatchBonus(s),reserved=new Set(s.workers.filter(w=>w.target&&!['home','marketPickup','marketDeliver','marketReturn'].includes(w.action)).map(w=>w.target+':'+w.action));
+ const route=(w,b,action)=>{const path=findPath(s,w,b,undefined,boost);if(!path)return false;w.target=b.id;w.action=action;w.path=path;w.atHome=false;w.status=action==='home'?'Идёт домой':action==='marketPickup'?'Идёт на склад за излишками':action==='marketDeliver'?'Несёт товары на рынок':action==='marketReturn'?'Возвращает товары на склад':'Идёт к объекту «'+BUILDINGS[b.type].name+'»';return true;};
  const clear=w=>{reserved.delete(w.target+':'+w.action);w.target=null;w.action=null;w.path=[];};
  const schedule=w=>{
   if(sum(w.cargo)){let market=buildingById(s,w.marketId);if(market?.type==='market'&&built(s,market)&&sum(market.output)<marketStats(market).capacity&&route(w,market,'marketDeliver'))return true;if(market?.type==='market'&&built(s,market)){w.status='Ждёт места на рынке';return false;}const warehouses=s.buildings.filter(b=>b.type==='warehouse'&&built(s,b)&&freeSpace(s)>0);for(const b of warehouses)if(route(w,b,'marketReturn'))return true;w.status='Нет прохода для доставки груза';return false;}
-  const rank={water:0,harvest:1,well:2,weed:3},candidates=s.buildings.filter(b=>!w.buildingId||b.id===w.buildingId||b.type==='well').map(b=>({b,action:taskFor(s,w,b)})).filter(q=>q.action);candidates.sort((a,b)=>(rank[a.action]??4)-(rank[b.action]??4)||(b.b.settings.priority||1)-(a.b.settings.priority||1)||(Math.abs(a.b.x-w.x)+Math.abs(a.b.y-w.y))-(Math.abs(b.b.x-w.x)+Math.abs(b.b.y-w.y)));
   // Empty a congested warehouse before harvesting more produce.
   const job=marketJob(s,w);if(job){const warehouses=s.buildings.filter(b=>b.type==='warehouse'&&built(s,b));for(const warehouse of warehouses)if(route(w,warehouse,'marketPickup')){w.marketId=job.market.id;return true;}}
+  const rank={water:0,harvest:1,well:2,weed:3},candidates=s.buildings.filter(b=>!w.buildingId||b.id===w.buildingId||b.type==='well').map(b=>({b,action:taskFor(s,w,b)})).filter(q=>q.action);candidates.sort((a,b)=>(rank[a.action]??4)-(rank[b.action]??4)||(b.b.settings.priority||1)-(a.b.settings.priority||1)||(Math.abs(a.b.x-w.x)+Math.abs(a.b.y-w.y))-(Math.abs(b.b.x-w.x)+Math.abs(b.b.y-w.y)));
   for(const {b,action}of candidates){if(reserved.has(b.id+':'+action))continue;if(route(w,b,action)){reserved.add(b.id+':'+action);return true;}}
   return false;
  };
@@ -742,11 +778,11 @@ function workerTick(s,dt){
   else w.unpaid=false;
   if(w.unpaid){if(w.action!=='home')clear(w);if(!w.atHome&&!w.target){const home=s.buildings.filter(b=>['house','cottage'].includes(b.type)&&built(s,b)).sort((a,b)=>Math.hypot(a.x-w.x,a.y-w.y)-Math.hypot(b.x-w.x,b.y-w.y));home.some(b=>route(w,b,'home'));}w.status='Нет монет на зарплату · ожидает';if(!w.target)continue;}
   if(w.target){const b=buildingById(s,w.target);if(!b){clear(w);w.waitUntil=s.time;}
-   else if(w.action==='home'){if(!w.unpaid&&schedule(w)){} }
+   else if(w.action==='home'){if(!w.unpaid)schedule(w);}
    else if(!['marketPickup','marketDeliver','marketReturn'].includes(w.action)&&taskFor(s,w,b)!==w.action){clear(w);w.waitUntil=s.time;}
   }
   if(w.target){const b=buildingById(s,w.target);const baseSpeed=TUNING.workerSpeed+Math.min(TUNING.workerMaxBonus,(s.tech||0)*TUNING.workerTechSpeed);
-   walkRoadAware(w,dt,roadMap(s),movement,baseSpeed,1+dispatchBonus(s));
+   walkRoadAware(w,dt,roadMap(s),movement,baseSpeed,boost);
 
    if(w.path.length)continue;
    const action=w.action;let result={ok:false,msg:'Работа остановлена'};
@@ -767,10 +803,10 @@ function workerTick(s,dt){
  }
 }
 
-function processProduction(s){for(let b of s.buildings){if(b.upgrade&&b.upgrade.end<=s.time){b.level=b.upgrade.toLevel;b.upgrade=null;s.stats.upgrades++;if(roadLevel(b))rerouteWorkers(s);}if(!built(s,b))continue;let room=statsFor(s,b).storage-sum(b.output);while(b.queue.length&&b.queue[0].end<=s.time){let q=b.queue[0],total=sum(q.outputs);if(total>room)break;for(let[k,n]of Object.entries(q.outputs))b.output[k]=(b.output[k]||0)+n;room-=total;b.queue.shift();addXp(s,q.xp||0);s.stats.produced=safe(s.stats.produced+total);}}}
-function eventsTick(s){if(s.time<s.event.until)return;let index=(s.event.index||0)+1;const types=['calm','rain','trader','supply','pests'];s.event={type:types[index%types.length],until:s.time+TUNING.eventSeconds,index};if(s.event.type==='rain')for(let b of s.buildings)if(b.plant&&!b.plant.watered){startGrowth(s,b.plant);if(s.tutorial===1)s.tutorial=2;}}
+function processProduction(s){for(let b of s.buildings){if(b.upgrade&&b.upgrade.end<=s.time){b.level=b.upgrade.toLevel;b.upgrade=null;s.stats.upgrades++;if(roadLevel(b))rerouteWorkers(s);}if(!b.queue.length||b.queue[0].end>s.time||!built(s,b))continue;let room=statsFor(s,b).storage-sum(b.output);while(b.queue.length&&b.queue[0].end<=s.time){let q=b.queue[0],total=sum(q.outputs);if(total>room)break;for(let[k,n]of Object.entries(q.outputs))b.output[k]=(b.output[k]||0)+n;room-=total;b.queue.shift();addXp(s,q.xp||0);s.stats.produced=safe(s.stats.produced+total);}}}
+function eventsTick(s){if(s.time<s.event.until)return;let index=(s.event.index||0)+1;const types=['calm','rain','trader','supply','pests'];s.event={type:types[index%types.length],until:s.time+TUNING.eventSeconds,index};if(s.event.type==='rain')for(let b of s.buildings)if(b.plant&&!b.plant.watered)startGrowth(s,b.plant);}
 function step(s,seconds){if(s.paused||!Number.isFinite(seconds)||seconds<=0)return s;let remaining=Math.min(seconds,86400*365); // one call is bounded; there is no offline time credit
-while(remaining>1e-8){let active=s.workers.length||s.buildings.some(b=>b.settings.auto||b.type==='plot');let dt=active?Math.min(1,remaining):Math.min(remaining,Math.max(.01,s.event.until-s.time));s.time=Math.min(SAFE,s.time+dt);remaining-=dt;for(const b of s.buildings)if(b.plant&&!b.plant.watered){b.plant.start=s.time;b.plant.end=s.time+b.plant.duration;}for(const b of s.buildings)weedTick(s,b,dt);processProduction(s);marketTick(s);eventsTick(s);if(s.workers.length)workerTick(s,dt);if(s.time-s.lastAutomation>=ECONOMY.automationInterval){s.lastAutomation=s.time;}}return s;}
+while(remaining>1e-8){let active=s.workers.length||s.buildings.some(b=>b.settings.auto||b.type==='plot');let dt=active?Math.min(1,remaining):Math.min(remaining,Math.max(.01,s.event.until-s.time));s.time=Math.min(SAFE,s.time+dt);remaining-=dt;for(const b of s.buildings){if(b.plant&&!b.plant.watered){b.plant.start=s.time;b.plant.end=s.time+b.plant.duration;}weedTick(s,b,dt);}processProduction(s);marketTick(s);eventsTick(s);if(s.workers.length)workerTick(s,dt);if(s.time-s.lastAutomation>=ECONOMY.automationInterval){s.lastAutomation=s.time;}}return s;}
 function act(s,action,p={}){if(!s||!p||typeof p!=='object')return fail('Некорректное действие');let b=p.id?buildingById(s,p.id):null;switch(action){
 case'marketLimit':{if(b?.type!=='market'||!ITEMS[p.item]||ITEMS[p.item].price<=0)return fail('Выберите товар и рынок');b.settings.limits=b.settings.limits||{};if(p.keep===null){delete b.settings.limits[p.item];return okay('Автопродажа товара отключена');}const keep=Number(p.keep);if(p.keep===''||!Number.isSafeInteger(keep)||keep<0||keep>SAFE)return fail('Запас должен быть целым неотрицательным числом');b.settings.limits[p.item]=keep;if(!b.settings.autoInitialized){b.settings.auto=true;b.settings.autoInitialized=true;}return okay('Запас на складе: '+keep+'. Излишки доставят помощники.');}
 case'feedDog':{if(b?.type!=='kennel'||!built(s,b))return fail('Сначала постройте будку');if(!Number.isSafeInteger(p.now)||p.now<0)return fail('Не удалось определить время кормления');if((s.items.feed||0)<TUNING.dogFeedCost)return fail('Нужен корм: '+TUNING.dogFeedCost);s.items.feed-=TUNING.dogFeedCost;b.dogFedUntil=p.now+TUNING.dogFeedHours*3600000;return okay('Собака накормлена и охраняет участок');}
@@ -1476,7 +1512,6 @@ function roadImage(layout,x,y,w,h,done){
         this.face(Array.from({length:N},(_,k)=>{const p=point(xx,k);return[p[0]+(xx===x?-.002:.002),y+(p[1]-y)*.58,Z+(p[2]-Z)*.58];}),'#c99b60','#aa7e48',.4,true);
       }
     }
-    stripe(x,y,w,lo,hi,color){this.front(x,y,w,lo,hi,color);}
     sprite(x,y,z,w,h,draw){const q=this.world([x,y,z]),p=pt(...q),sum=q[0]+q[1];this.faces.push({p:[{x:p.x-w,y:p.y-h},{x:p.x+w,y:p.y-h},{x:p.x+w,y:p.y+5},{x:p.x-w,y:p.y+5}],color:null,edge:null,area:1,minX:p.x-w,maxX:p.x+w,minY:p.y-h,maxY:p.y+5,avg:z,v:[[-w,-h],[w,-h],[w,5],[-w,5]].map(([dx,dy])=>[q[0]+dx/58,q[1]-dx/58,q[2]-dy]),depth:(X,Y)=>(sum-Y/15)/2,draw:()=>{this.c.save();this.c.translate(p.x,p.y);draw();this.c.restore();}});}
     flush(){
       if(this.retained&&this._displayList){this._paintDisplayList();return;}
@@ -1576,32 +1611,51 @@ function roadImage(layout,x,y,w,h,done){
     const rotation=((Math.floor(Number(b.rotation)||0)%4)+4)%4;
     return `${b.type}-L${level}-R${rotation}.png`;
   }
-  function buildingImageCandidates(b){
-    const cfg=G.FarmBuildingSprites||{},level=Math.max(1,Math.floor(Number(b.level)||1)),rotation=((Math.floor(Number(b.rotation)||0)%4)+4)%4;
-    const levels=new Set([1,level]);
-    // Check every lower level, including custom intermediate levels.
-    for(let n=1;n<level;n++)levels.add(n);
-    for(const n of cfg.levels||[])if(Number.isInteger(n)&&n>0)levels.add(n);
+  const BUILDING_SPRITE_DEFAULTS={};
+  const BUILDING_RESOLUTIONS=new Map();
+  let spriteConfig=null,knownSpriteLevels=new Map();
+  function spriteLevels(cfg,type){
+    let upper=knownSpriteLevels.get(type);
+    if(upper)return upper;
+    const levels=new Set((cfg.levels||[]).filter(n=>Number.isInteger(n)&&n>0));
     for(const name of Object.keys(cfg.placements||{})){
       const match=name.match(/^(.*)-L(\d+)-R[0-3]\.png$/);
-      if(match&&match[1]===b.type)levels.add(Number(match[2]));
+      if(match&&match[1]===type)levels.add(Number(match[2]));
     }
-    const ranked=[...levels].sort((a,b)=>(a<=level?0:1)-(b<=level?0:1)||(a<=level?b-a:a-b));
-    // Keep the requested orientation whenever any level supplies that view.
-    // Only after that view is exhausted use another existing orientation.
-    return [rotation,(rotation+1)%4,(rotation+3)%4,(rotation+2)%4].flatMap(r=>ranked.map(n=>`${b.type}-L${n}-R${r}.png`));
+    upper=[...levels].sort((a,b)=>a-b);knownSpriteLevels.set(type,upper);
+    return upper;
+  }
+  function* buildingImageCandidates(type,level,rotation,upper){
+    for(const r of [rotation,(rotation+1)%4,(rotation+3)%4,(rotation+2)%4]){
+      // Unlisted lower levels can still have custom PNGs.
+      for(let n=level;n>=1;n--)yield `${type}-L${n}-R${r}.png`;
+      for(const n of upper)if(n>level)yield `${type}-L${n}-R${r}.png`;
+    }
+  }
+  function cachedBuildingFallback(type,level,rotation,upper){
+    const order=[rotation,(rotation+1)%4,(rotation+3)%4,(rotation+2)%4];
+    const prefix=type+'-L';let available=null,bestView=4,bestLevel=0;
+    for(const record of BUILDING_IMAGES.values()){
+      if(record.status!=='ready'||!record.name.startsWith(prefix))continue;
+      const r=Number(record.name.at(-5)),n=Number(record.name.slice(prefix.length,-7)),view=order.indexOf(r);
+      if(n>level&&!upper.includes(n))continue;
+      if(view<bestView||view===bestView&&(bestLevel>level?n<bestLevel:n<=level&&n>bestLevel)){
+        available=record;bestView=view;bestLevel=n;
+      }
+    }
+    return available;
   }
   function requestBuildingImage(name,world){
-    const cfg=G.FarmBuildingSprites||{};
+    const cfg=G.FarmBuildingSprites||BUILDING_SPRITE_DEFAULTS;
     let record=BUILDING_IMAGES.get(name);
     if(record){if(record.status==='loading')record.watchers.add(world);return record;}
     const image=new Image();image.decoding='async';
     record={image,name,status:'loading',watchers:new Set([world])};BUILDING_IMAGES.set(name,record);
     const finish=status=>{
       if(record.status!=='loading')return;
-      clearTimeout(record.timer);record.status=status;
+      clearTimeout(record.timer);record.status=status;if(status==='ready')buildingImageVersion++;
       // Also repaint a failed probe so the next fallback can be tried.
-      for(const target of record.watchers)target?.refresh?.();
+      for(const target of record.watchers)target._needsDraw=true;
       record.watchers.clear();
     };
     image.onload=()=>finish(image.naturalWidth>0&&image.naturalHeight>0?'ready':'missing');
@@ -1610,18 +1664,30 @@ function roadImage(layout,x,y,w,h,done){
     image.src=(cfg.folder||'assets/buildings').replace(/\/$/,'')+'/'+name;
     return record;
   }
+  let buildingImageVersion=0;
   function optionalBuildingImage(b,world){
-    if((G.FarmBuildingSprites||{}).enabled===false)return null;
-    const candidates=buildingImageCandidates(b);
-    // Keep an already loaded fallback visible while a better one is pending.
-    let available=null;
-    for(const name of candidates){const record=BUILDING_IMAGES.get(name);if(record?.status==='ready'){available=record;break;}}
-    for(const name of candidates){
-      const record=requestBuildingImage(name,world);
-      if(record.status==='ready')return record;
-      if(record.status==='loading')return available;
+    const cfg=G.FarmBuildingSprites||BUILDING_SPRITE_DEFAULTS;
+    if(cfg.enabled===false)return null;
+    if(cfg!==spriteConfig){spriteConfig=cfg;knownSpriteLevels=new Map();BUILDING_RESOLUTIONS.clear();}
+    const level=Math.min(Number.MAX_SAFE_INTEGER,Math.max(1,Math.floor(Number(b.level)||1)));
+    const rotation=((Math.floor(Number(b.rotation)||0)%4)+4)%4,key=b.type+'|'+level+'|'+rotation;
+    let state=BUILDING_RESOLUTIONS.get(key);
+    if(!state){
+      const upper=spriteLevels(cfg,b.type);
+      state={queue:buildingImageCandidates(b.type,level,rotation,upper),upper,record:null,version:-1};
+      if(BUILDING_RESOLUTIONS.size>=512)BUILDING_RESOLUTIONS.delete(BUILDING_RESOLUTIONS.keys().next().value);
+      BUILDING_RESOLUTIONS.set(key,state);
     }
-    return available;
+    while(!state.record||state.record.status==='missing'){
+      const next=state.queue.next();if(next.done)return null;
+      state.record=requestBuildingImage(next.value,world);
+    }
+    if(state.record.status==='ready')return state.record;
+    state.record.watchers.add(world);
+    if(state.version!==buildingImageVersion){
+      state.fallback=cachedBuildingFallback(b.type,level,rotation,state.upper);state.version=buildingImageVersion;
+    }
+    return state.fallback;
   }
   class FarmWorld {
     constructor(canvas, options) {
@@ -1720,9 +1786,9 @@ function roadImage(layout,x,y,w,h,done){
     draw(now,visualTime,workerAlpha=1){
       const s=this.options.getState();if(!s||!G.FC||this.width<2)return;
       const pal=this.palette[this.theme]||this.palette.light;
-      if(this._lastState!==s||s.time<this._lastTime){this._lastState=s;this._landCache.clear();this._details.clear();this._terrainCache?.clear();this._terrainDetailCache?.clear();this._modelCache?.clear();this._sceneryKey=null;this._workerMotion=null;this._gaits?.clear();this._observed.clear();this._effects=[];this._indexStamp=-1;}
+      if(this._lastState!==s||s.time<this._lastTime){this._lastState=s;this._roadImages?.clear();this._landCache.clear();this._details.clear();this._terrainCache?.clear();this._terrainDetailCache?.clear();this._modelCache?.clear();this._sceneryKey=null;this._workerMotion=null;this._gaits?.clear();this._observed.clear();this._effects=[];this._indexStamp=-1;}
       this._lastTime=s.time; this._time=Number.isFinite(visualTime)?visualTime:Number(s.time)||0;this._s=s;this._reindex(s);const landCount=Object.keys(s.lands||{}).length;if(this._landCount!==landCount){this._landCount=landCount;this._landCache.clear();}
-      const c=this.ctx;c.setTransform(this.dpr,0,0,this.dpr,0,0);c.clearRect(0,0,this.width,this.height);c.fillStyle='#88b94f';c.fillRect(0,0,this.width,this.height);
+      const c=this.ctx;c.setTransform(this.dpr,0,0,this.dpr,0,0);c.fillStyle='#88b94f';c.fillRect(0,0,this.width,this.height);
       const center=pt(this.camera.x,this.camera.y);c.save();c.translate(this.width/2,this.height/2);c.scale(this.camera.zoom,this.camera.zoom);c.translate(-center.x,-center.y);c.lineJoin='round';c.lineCap='round';
       const corners=[this._world({x:-100,y:-150}),this._world({x:this.width+100,y:-150}),this._world({x:this.width+100,y:this.height+100}),this._world({x:-100,y:this.height+100})];
       let minX=Math.floor(Math.min(...corners.map(p=>p.x))/CHUNK),maxX=Math.floor(Math.max(...corners.map(p=>p.x))/CHUNK),minY=Math.floor(Math.min(...corners.map(p=>p.y))/CHUNK),maxY=Math.floor(Math.max(...corners.map(p=>p.y))/CHUNK);
@@ -1732,9 +1798,9 @@ function roadImage(layout,x,y,w,h,done){
       const lands=[],objects=[],buildings=[],groundPaths=[];this._terrainVisible=[];
       const gx0=Math.floor(Math.min(...corners.map(p=>p.x))/16)-1,gx1=Math.ceil(Math.max(...corners.map(p=>p.x))/16)+1;
       const gy0=Math.floor(Math.min(...corners.map(p=>p.y))/16)-1,gy1=Math.ceil(Math.max(...corners.map(p=>p.y))/16)+1;
-      for(let gy=gy0;gy<=gy1;gy++)for(let gx=gx0;gx<=gx1;gx++)if(!G.FC.inWorld(gx,gy))this._paintTerrain(c,gx,gy);
+      for(let gy=gy0;gy<=gy1;gy++)for(let gx=gx0;gx<=gx1;gx++)if(!G.FC.inWorld(gx,gy))this._recordTerrain(gx,gy);
       this._wilderness(c,objects,corners);
-      for(let cy=minY;cy<=maxY;cy++)for(let cx=minX;cx<=maxX;cx++){const land=this._land(s,cx,cy);lands.push(land);this._ground(c,land,pal);for(const o of land.objects||[])if(this._inViewport(o.x,o.y,o.w||1,o.h||1))objects.push({kind:'nature',data:o,depth:o.x+o.y+(o.w||1)+(o.h||1)-.2});for(const b of this._index.get(`${cx},${cy}`)||[]){const def=G.FC.BUILDINGS[b.type]||{};if(!this._inViewport(b.x,b.y,b.w||def.w||1,b.h||def.h||1))continue;buildings.push(b);if(this._isPath(b))groundPaths.push(b);else if(b.type==='gate')objects.push(...this._gateParts(b));else objects.push({kind:'building',data:b,depth:b.x+b.y+(b.w||def.w||1)+(b.h||def.h||1)});}}
+      for(let cy=minY;cy<=maxY;cy++)for(let cx=minX;cx<=maxX;cx++){const land=this._land(s,cx,cy);lands.push(land);this._ground(c,land);for(const o of land.objects||[])if(this._inViewport(o.x,o.y,o.w||1,o.h||1))objects.push({kind:'nature',data:o,depth:o.x+o.y+(o.w||1)+(o.h||1)-.2});for(const b of this._index.get(`${cx},${cy}`)||[]){const def=G.FC.BUILDINGS[b.type]||{};if(!this._inViewport(b.x,b.y,b.w||def.w||1,b.h||def.h||1))continue;buildings.push(b);if(this._isPath(b))groundPaths.push(b);else if(b.type==='gate')objects.push(...this._gateParts(b));else objects.push({kind:'building',data:b,depth:b.x+b.y+(b.w||def.w||1)+(b.h||def.h||1)});}}
       if(this.camera.zoom>=.5)for(const land of this._terrainVisible)this._terrainDetails(c,land.cx,land.cy);
       this._roads(c,groundPaths);
       const selectedRoad=groundPaths.find(b=>b.id===this.selectedId);
@@ -1746,23 +1812,14 @@ function roadImage(layout,x,y,w,h,done){
       // trees and buildings regardless of the pond footprint/depth value.
       // Keep all non-water objects depth-sorted as before.
       for(const o of objects)if(o.kind==='nature'&&o.data.type==='pond')this._nature(c,o.data,s.seed);
-      for(const o of objects){
-        const d=o.data;
-        if(o.kind==='wilderness')this._tree(c,d.x,d.y,d.variant,false,d.scale,false,true,false);
-        else if(o.kind==='nature'){
-          if(d.type==='tree'){const w=d.w||1,h=d.h||1;this._tree(c,d.x+w/2,d.y+h/2,hash(d.x,d.y,s.seed),false,Math.min(1.3,.85+(w+h)*.08),false,true,false);}
-          else if(d.type==='rock')this._rock(c,d,s.seed,true,false);
-          else if(d.type==='flowers')this._flowers(c,d,s.seed,true,false);
-        }
-      }
       // Plots and their badges belong below people; tall scenery keeps depth sorting.
       for(const o of objects)if(o.kind==='building'&&o.data.type==='plot'){this._building(c,o.data);this._watch(o.data);}
       for(const b of buildings)if(b.type==='plot')this._status(c,b,pal);
       const sceneKey=[this._sceneRevision||0,s.seed,this.camera.x,this.camera.y,this.camera.zoom,this.width,this.height,landCount,s.buildings.length].join('|');
       const ordered=this._orderPeople(objects,sceneKey);
       for(const o of ordered){
-        if(o.kind==='wilderness'){const d=o.data;this._tree(c,d.x,d.y,d.variant,false,d.scale,false,false);}
-        else if(o.kind==='nature'){if(o.data.type!=='pond')this._nature(c,o.data,s.seed,false);}
+        if(o.kind==='wilderness'){const d=o.data;this._tree(c,d.x,d.y,d.variant,false,d.scale);}
+        else if(o.kind==='nature'){if(o.data.type!=='pond')this._nature(c,o.data,s.seed);}
         else if(o.kind==='worker')this._worker(c,o.data);
         else if(o.kind==='gatePart')this._gatePart(c,o.data.gate,o.data.part);
         else if(o.data.type!=='plot'){this._building(c,o.data);this._watch(o.data);}
@@ -1830,14 +1887,14 @@ function roadImage(layout,x,y,w,h,done){
       c.fillStyle=inks[0];c.fill(paths[0]);c.stroke(paths[0]);c.fillStyle=inks[1];c.fill(paths[1]);c.stroke(paths[1]);
       c.fillStyle='#b6b898';c.fill(paths[2]);c.strokeStyle='#7d8864';c.lineWidth=.35;c.stroke(paths[2]);c.restore();
     }
-    _paintTerrain(c,cx,cy){
+    _recordTerrain(cx,cy){
       const q=this._drawBounds,p0=pt(cx*16,cy*16);
-      if(q&&(p0.x+500<q.left||p0.x-500>q.right||p0.y+510<q.top||p0.y-30>q.bottom))return true;
-      this._terrainVisible.push({cx,cy});return true;
+      if(q&&(p0.x+500<q.left||p0.x-500>q.right||p0.y+510<q.top||p0.y-30>q.bottom))return;
+      this._terrainVisible.push({cx,cy});
     }
-    _ground(c,land,pal){
+    _ground(c,land){
       const x=land.cx*16,y=land.cy*16,owned=!!land.owned;
-      if(!this._paintTerrain(c,land.cx,land.cy))tile(c,x,y,16,16,'#88b94f');
+      this._recordTerrain(land.cx,land.cy);
       if(owned){for(const [a,b] of [[x,y],[x+16,y],[x,y+16],[x+16,y+16]]){const p=pt(a,b);line(c,[{x:p.x,y:p.y},{x:p.x,y:p.y-7}],'#cdac58',3);ellipse(c,p.x,p.y-7,2,1,'#fada8d');}}
     }
     _grid(c,lands,pal){c.save();c.globalAlpha=.65;for(const l of lands)if(l.owned){const x=l.cx*16,y=l.cy*16;for(let i=1;i<16;i++){line(c,[pt(x+i,y),pt(x+i,y+16)],pal.grid,.65);line(c,[pt(x,y+i),pt(x+16,y+i)],pal.grid,.65);}}c.restore();}
@@ -1845,33 +1902,32 @@ function roadImage(layout,x,y,w,h,done){
       if(this.camera.zoom<.58)return;const adjacent=[[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>this._s.lands?.[`${l.cx+dx},${l.cy+dy}`]);if(!adjacent)return;
       const p=pt(l.cx*16+8,l.cy*16+8);c.save();c.globalAlpha=.88;round(c,p.x-88,p.y-24,176,48,13,pal.badgeBg,pal.badgeBorder);c.textAlign='center';c.fillStyle=pal.badgeInk;c.font='600 11px system-ui, sans-serif';c.fillText(l.name||'Новая земля',p.x,p.y-5);c.fillStyle=pal.badgeSub;c.font='10px system-ui, sans-serif';c.fillText(`Открыть участок · ${G.FC.fmt?.(l.cost?.coins||0)||l.cost?.coins||0} мон.`,p.x,p.y+12);c.restore();
     }
-    _nature(c,o,seed,shadow=true){this._natureBase(c,o,seed,shadow);}
-    _natureBase(c,o,seed,shadow=true){
+    _nature(c,o,seed){
       const w=o.w||1,h=o.h||1,x=o.x+w/2,y=o.y+h/2;
-      if(o.type==='tree')this._tree(c,x,y,hash(o.x,o.y,seed),false,Math.min(1.3,.85+(w+h)*.08),false,shadow);
+      if(o.type==='tree')this._tree(c,x,y,hash(o.x,o.y,seed),false,Math.min(1.3,.85+(w+h)*.08));
       else if(o.type==='pond')this._pond(c,o.x,o.y,w,h,false);
-      else if(o.type==='rock')this._rock(c,o,seed,shadow);
-      else if(o.type==='flowers')this._flowers(c,o,seed,shadow);
+      else if(o.type==='rock')this._rock(c,o,seed);
+      else if(o.type==='flowers')this._flowers(c,o,seed);
     }
-    _natureSprite(c,kind,index,p,scale=1,shadow=true,art=true){
+    _natureSprite(c,kind,index,p,scale=1){
       const f=NATURE_FRAMES[kind][index],image=f.image;if(!image?.naturalWidth)return;
       const r=f.width/f.w*scale;
-      if(art)c.drawImage(image,f.x,f.y,f.w,f.h,p.x-f.anchorX*r,p.y-f.anchorY*r,f.w*r,f.h*r);
+      c.drawImage(image,f.x,f.y,f.w,f.h,p.x-f.anchorX*r,p.y-f.anchorY*r,f.w*r,f.h*r);
     }
-    _rock(c,o,seed,shadow=true,art=true){
+    _rock(c,o,seed){
       const p=pt(o.x+(o.w||1)/2,o.y+(o.h||1)/2);
-      this._natureSprite(c,'rocks',Math.floor(hash(o.x+11,o.y+7,seed+31)*10),p,.85+hash(o.y,o.x,seed+17)*.25,shadow,art);
+      this._natureSprite(c,'rocks',Math.floor(hash(o.x+11,o.y+7,seed+31)*10),p,.85+hash(o.y,o.x,seed+17)*.25);
     }
-    _flowers(c,o,seed,shadow=true,art=true){
+    _flowers(c,o,seed){
       const p=pt(o.x+(o.w||1)/2,o.y+(o.h||1)/2);
-      this._natureSprite(c,'flowers',Math.floor(hash(o.x,o.y,seed+53)*5),p,.9+hash(o.y,o.x,seed+91)*.2,shadow,art);
+      this._natureSprite(c,'flowers',Math.floor(hash(o.x,o.y,seed+53)*5),p,.9+hash(o.y,o.x,seed+91)*.2);
     }
-    _tree(c,x,y,n=.5,fruit=false,scale=1,garden=false,shadow=true,art=true){
+    _tree(c,x,y,n=.5,fruit=false,scale=1){
       const variant=treeVariant(n,fruit),frame=TREE_FRAMES[variant],image=frame.image,p=pt(x,y);
       if(!image?.naturalWidth)return;
       scale*=.9+hash(Math.floor(x*17),Math.floor(y*17),71)*.2;
       const ratio=frame.height/frame.h*scale;
-      if(art)c.drawImage(image,frame.x,frame.y,frame.w,frame.h,
+      c.drawImage(image,frame.x,frame.y,frame.w,frame.h,
         p.x-frame.anchorX*ratio,p.y-frame.anchorY*ratio,frame.w*ratio,frame.h*ratio);
     }
     _pond(c,x,y,w,h,formal,rotation=0){
@@ -2006,7 +2062,8 @@ function roadImage(layout,x,y,w,h,done){
         scenery=objects.filter(o=>o.kind!=='worker').sort((a,b)=>a.depth-b.depth);
         this._sortedScenery=scenery;this._sceneryKey=sceneKey;
       }
-      const slots=Array.from({length:scenery.length+1},()=>[]);
+      if(!people.length)return scenery;
+      const slots=new Map();
       for(const person of people){const p=person.data;let lo=0,hi=scenery.length,slot=scenery.findIndex(o=>o.depth>person.depth);if(slot<0)slot=scenery.length;
         for(let i=0;i<scenery.length;i++){const o=scenery[i],b=o.data;if(!['building','gatePart'].includes(o.kind)||b.type==='plot')continue;
           const left=b.x-b.y-(b.h||1),right=b.x+(b.w||1)-b.y,px=p.x-p.y;if(px<left-.5||px>right+.5)continue;
@@ -2015,9 +2072,10 @@ function roadImage(layout,x,y,w,h,done){
           if(p.x>=b.x+(b.w||1)-.02||p.y>=b.y+(b.h||1)-.02)lo=Math.max(lo,i+1);
           else if(p.x<=b.x+.02||p.y<=b.y+.02)hi=Math.min(hi,i);
         }
-        slot=lo<=hi?Math.max(lo,Math.min(hi,slot)):lo;slots[slot].push(person);
+        slot=lo<=hi?Math.max(lo,Math.min(hi,slot)):lo;
+        if(!slots.has(slot))slots.set(slot,[]);slots.get(slot).push(person);
       }
-      const ordered=[];for(let i=0;i<slots.length;i++){slots[i].sort((a,b)=>a.depth-b.depth);ordered.push(...slots[i]);if(i<scenery.length)ordered.push(scenery[i]);}return ordered;
+      const ordered=[];for(let i=0;i<=scenery.length;i++){const group=slots.get(i);if(group)ordered.push(...group.sort((a,b)=>a.depth-b.depth));if(i<scenery.length)ordered.push(scenery[i]);}return ordered;
     }
     _smallModel(c,b,build,tag=''){
       const origin=pt(b.x,b.y),scale=Math.min(5,Math.max(1,Math.ceil(this.camera.zoom*this.dpr))),fed=(b.dogFedUntil||0)>Date.now(),key=[b.type,b.rotation,this.theme,scale,fed,tag].join('|');this._smallModels=this._smallModels||new Map();
@@ -2170,8 +2228,7 @@ function roadImage(layout,x,y,w,h,done){
       if(d.category!=='decoration'&&!['plot','orchard','fishery','quarry','well','mill'].includes(b.type))tile(c,x+.04,y+.06,w-.08,h-.08,'#183c281a');
       if(b.type==='well'||b.type==='mill')ellipse(c,p.x+1,p.y+1,b.type==='well'?12:18,b.type==='well'?4:6,'#183c2825');
       if(d.category==='decoration'&&['sign','lamp'].includes(b.type)){
-        const radius=b.type==='lamp'||b.type==='sign'?3:b.type==='gazebo'?24:10;
-        ellipse(c,p.x+2,p.y+2,radius,radius*.27,'#193c2828');
+        ellipse(c,p.x+2,p.y+2,3,3*.27,'#193c2828');
       }
       if(b.type==='gate'){for(const part of this._gateParts(b))this._gatePart(c,b,part.data.part);return;}
       if(b.type==='plot'){this._plot(c,b);return;}
@@ -2180,8 +2237,8 @@ function roadImage(layout,x,y,w,h,done){
       if(['flowerbed','flowerborder','bush','hedge','pond_decor','fountain','scarecrow','gnome'].includes(b.type)){this._refinedDecor(c,b,d);return;}
 
       if(b.type==='bakery'){this._bakery(c,b);return;}
-      if(!['plot','orchard'].includes(b.type)&&d.category!=='decoration'){this._model(c,b);return;}
-      if(d.category==='decoration'){if(['bench','table','gazebo','fence','gate','sign','lamp','cart'].includes(b.type))this._modelDecor(c,b);else this._decor(c,b,d);return;}
+      if(b.type!=='orchard'&&d.category!=='decoration'){this._model(c,b);return;}
+      if(d.category==='decoration'){if(['bench','table','gazebo','fence','sign','lamp','cart'].includes(b.type))this._modelDecor(c,b);else this._decor(c,b,d);return;}
       ellipse(c,p.x+7,p.y+5,(w+h)*TW/4*.71,(w+h)*TH/4*.52,'#0f4e2a23');
       if(b.type==='orchard'){
         const m=new BuildingMesh(c,b,d.w,d.h),trees=[];
@@ -3279,27 +3336,31 @@ function roadImage(layout,x,y,w,h,done){
         if(this._roadImages.size<=Math.max(chunks.size,16))break;
         if(!chunks.has(key))this._roadImages.delete(key);
       }
+      const revision=this._sceneRevision||0,time=this._s.time;
       for(const chunk of chunks){
         const [cx,cy]=chunk.split(',').map(Number),x=cx*span,y=cy*span;
-        const layout=new Map();
-        for(let sy=Math.floor((y-halo)/CHUNK);sy<=Math.floor((y+span+halo-1)/CHUNK);sy++){
-          for(let sx=Math.floor((x-halo)/CHUNK);sx<=Math.floor((x+span+halo-1)/CHUNK);sx++){
-            for(const b of this._index.get(sx+','+sy)||[]){
-              if(b.x<x-halo||b.x>=x+span+halo||b.y<y-halo||b.y>=y+span+halo)continue;
-              const level=G.FC.roadLevel(b);
-              if(level)layout.set(b.x+','+b.y,level);
+        let layer=this._roadImages.get(chunk);
+        if(layer?.time!==time||layer?.revision!==revision){
+          const layout=new Map();
+          for(let sy=Math.floor((y-halo)/CHUNK);sy<=Math.floor((y+span+halo-1)/CHUNK);sy++){
+            for(let sx=Math.floor((x-halo)/CHUNK);sx<=Math.floor((x+span+halo-1)/CHUNK);sx++){
+              for(const b of this._index.get(sx+','+sy)||[]){
+                if(b.x<x-halo||b.x>=x+span+halo||b.y<y-halo||b.y>=y+span+halo)continue;
+                const level=G.FC.roadLevel(b);
+                if(level)layout.set(b.x+','+b.y,level);
+              }
             }
           }
-        }
-        const signature=[...layout].sort().join('|');
-        let layer=this._roadImages.get(chunk);
-        if(layer?.signature!==signature){
-          const cells=[...layout.keys()].map(k=>k.split(',').map(Number))
-            .filter(([u,v])=>u>=x&&u<x+span&&v>=y&&v<y+span);
-          const left=Math.min(...cells.map(([u])=>u)),right=Math.max(...cells.map(([u])=>u));
-          const top=Math.min(...cells.map(([,v])=>v)),bottom=Math.max(...cells.map(([,v])=>v));
-          layer={signature,...roadImage(layout,left,top,right-left+1,bottom-top+1,()=>{this._needsDraw=true;})};
-          this._roadImages.set(chunk,layer);
+          const signature=[...layout].sort().join('|');
+          if(layer?.signature!==signature){
+            const cells=[...layout.keys()].map(k=>k.split(',').map(Number))
+              .filter(([u,v])=>u>=x&&u<x+span&&v>=y&&v<y+span);
+            const left=Math.min(...cells.map(([u])=>u)),right=Math.max(...cells.map(([u])=>u));
+            const top=Math.min(...cells.map(([,v])=>v)),bottom=Math.max(...cells.map(([,v])=>v));
+            layer={signature,...roadImage(layout,left,top,right-left+1,bottom-top+1,()=>{this._needsDraw=true;})};
+            this._roadImages.set(chunk,layer);
+          }
+          layer.time=time;layer.revision=revision;
         }
         if(layer.image.complete&&layer.image.naturalWidth)c.drawImage(layer.image,layer.x,layer.y,layer.width,layer.height);
         else for(const b of visible){
@@ -3315,7 +3376,7 @@ function roadImage(layout,x,y,w,h,done){
         tile(c,x+.15,y+.15,.7,.7,shade,'#58563a',.65);
         return;
       }
-      if(b.type==='tree'){this._tree(c,x+w/2,y+h/2,hash(x,y,477),false,.78+(w+h)*.12,true);}
+      if(b.type==='tree'){this._tree(c,x+w/2,y+h/2,hash(x,y,477),false,.78+(w+h)*.12);}
     }
     _workerFemale(w){
       const name=String(w.name||'').trim().toLocaleLowerCase('ru-RU').split(/[\s\d]+/)[0];
@@ -3617,7 +3678,7 @@ network.bootstrap=async(local,allowCreate=true)=>{
  if(!network.configured)return local;
  sessionKey='farm-session-'+(tg().initDataUnsafe?.user?.id||'telegram')+'-'+location.pathname;
  const health=await request('/api/health');network.roadsSupported=health.features?.roads===1;network.gateRoadsSupported=health.features?.gateRoads===1;if(health.features?.raids===1&&health.features?.farmCare!==1)throw new Error('Для дорожек, прополки и зарплаты сначала обновите сервер файлом worker-balance.txt из архива обновления.');network.balanceSupported=health.features?.balance===1;if(network.balanceSupported)await request('/api/balance');if(health.features?.raids!==1){let primary=false;try{primary=localStorage.getItem(sessionKey+'_primary')==='1';}catch(_){}if(primary)throw new Error('Эта ферма уже хранится на сервере. Верните обновлённую версию сервера, чтобы продолжить.');if(!allowCreate&&!local)throw new Error('Не удалось загрузить личное сохранение. Повторите подключение.');return local;}
- enabled=true;ready=false;sessionKey='farm-session-'+(tg().initDataUnsafe?.user?.id||'telegram')+'-'+location.pathname;
+ enabled=true;ready=false;
  try{session=sessionStorage.getItem(sessionKey)||crypto.randomUUID();sessionStorage.setItem(sessionKey,session);recovery=JSON.parse(localStorage.getItem(sessionKey+'_recovery')||'null');}catch(_){session=session||crypto.randomUUID();}
  const data=await request('/api/session/open',{session,state:local||(allowCreate?FC.create():null)});const valid=FC.validate(data.state);if(!valid.ok)throw new Error('Серверное сохранение не прошло проверку: '+valid.msg);
  revision=data.revision;network.id=data.id;network.rules=data.rules;ready=true;leaseAt=performance.now();try{localStorage.setItem(sessionKey+'_primary','1');}catch(_){}return data.state;
