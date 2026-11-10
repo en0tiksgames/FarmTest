@@ -487,7 +487,7 @@ building('complex','Автоматизированный комплекс','🏭
 building('market','Фермерский рынок','🛒','infrastructure',8,3,2,600,35,15,'Помощники приносят излишки со склада. Продажа идёт партиями через интервалы; цена растёт с уровнем.');
 building('kennel','Будка с собакой','🐕','infrastructure',10,1,1,450,20,8,'Накормленная собака охраняет участок. Кормление действует сутки реального времени.');
 function deco(key,name,icon,unlock,coins,w=1,h=1,extra={}){building(key,name,icon,'decoration',unlock,w,h,coins,0,0,'Украшение. Не требуется для дохода или открытия технологий.',extra);}
-deco('flowerbed','Клумба','🌷',1,12);deco('flowerborder','Цветочный бордюр','🌸',1,8,1,1,{passable:true});deco('bush','Садовый куст','🌳',1,15);deco('tree','Декоративное дерево','🌳',3,35);deco('path_dirt','Дорожка','🟤',1,3,1,1,{passable:true,desc:'Земля → спилы → камень → кирпич. Дорожки соединяются и ускоряют помощников.'});deco('path_wood','Деревянная дорожка','🟫',1,3,1,1,{passable:true});deco('path_stone','Каменная дорожка','⬜',8,7,1,1,{passable:true});deco('path_brick','Кирпичная дорожка','🧱',20,12,1,1,{passable:true});deco('fence','Деревянный забор','🪵',1,8);deco('gate','Ворота','🚪',1,14,1,1,{passable:true});deco('hedge','Живая изгородь','🌿',8,20);deco('lamp','Садовый фонарь','🏮',10,65);deco('bench','Скамейка','🪑',3,28);deco('table','Столик для отдыха','🪑',8,55);deco('gazebo','Беседка','🏡',20,280,2,2);deco('fountain','Фонтан','⛲',35,650,2,2);deco('pond_decor','Декоративный пруд','🐟',25,350,2,2);deco('scarecrow','Пугало','🧑‍🌾',1,18);deco('cart','Садовая тележка','🛒',5,35);deco('sign','Вывеска','🪧',1,12);deco('gnome','Садово-декоративная фигурка','🍄',10,70);
+deco('flowerbed','Клумба','🌷',1,12);deco('flowerborder','Цветочный бордюр','🌸',1,8,1,1,{passable:true});deco('bush','Садовый куст','🌳',1,15);deco('tree','Декоративное дерево','🌳',3,35);deco('path_dirt','Дорожка','🟤',1,3,1,1,{passable:true,desc:'Земля → спилы → камень → кирпич. Дорожки соединяются и ускоряют помощников.'});deco('path_wood','Деревянная дорожка','🟫',1,3,1,1,{passable:true});deco('path_stone','Каменная дорожка','⬜',8,7,1,1,{passable:true});deco('path_brick','Кирпичная дорожка','🧱',20,12,1,1,{passable:true});deco('fence','Деревянный забор','🪵',1,8,1,1,{desc:'Соединяется с соседними секциями. Материал можно улучшить до камня и железа.'});deco('gate','Ворота','🚪',1,14,1,1,{passable:true,desc:'Помощники проходят через ворота. Поворот задаёт сторону открытия створок.'});deco('hedge','Живая изгородь','🌿',8,20);deco('lamp','Садовый фонарь','🏮',10,65);deco('bench','Скамейка','🪑',3,28);deco('table','Столик для отдыха','🪑',8,55);deco('gazebo','Беседка','🏡',20,280,2,2);deco('fountain','Фонтан','⛲',35,650,2,2);deco('pond_decor','Декоративный пруд','🐟',25,350,2,2);deco('scarecrow','Пугало','🧑‍🌾',1,18);deco('cart','Садовая тележка','🛒',5,35);deco('sign','Вывеска','🪧',1,12);deco('gnome','Садово-декоративная фигурка','🍄',10,70);
 function recipe(key,name,buildingId,unlock,inputs,outputs,time,coins=0,extra={}){RECIPES[key]={id:key,name,building:buildingId,unlock,inputs,outputs,time,coins,...extra};BUILDINGS[buildingId].recipes.push(key);}
 recipe('flour','Помол муки','mill',5,{wheat:3},{flour:2},26);
 recipe('feed','Зерновой корм','mill',5,{wheat:2,corn:1},{feed:4},22);
@@ -575,6 +575,19 @@ function roadUpgrade(s,b){
   const reason=b.upgrade?'Дождитесь окончания улучшения':s.level<next.unlock
     ?'Нужен уровень игрока '+next.unlock:costReason(s,next.cost);
   return {available:!reason,reason,cost:next.cost,requiredLevel:next.unlock,toLevel:level+1};
+}
+const FENCE_LEVELS=['Дерево','Камень','Железо'];
+function fenceLevel(b){
+  return b?.type==='fence'||b?.type==='gate'?Math.min(FENCE_LEVELS.length,b.level||1):0;
+}
+function fenceUpgrade(s,b){
+  const level=fenceLevel(b);
+  if(!level||level>=FENCE_LEVELS.length)return {available:false,reason:'Достигнут максимальный уровень'};
+  const gate=b.type==='gate',cost=level===1
+    ?{coins:gate?30:15,wood:0,stone:gate?4:2}
+    :{coins:gate?70:35,wood:0,stone:0};
+  const reason=b.upgrade?'Дождитесь окончания улучшения':costReason(s,cost);
+  return {available:!reason,reason,cost,toLevel:level+1};
 }
 const navigation=new WeakMap();
 function navigationIndex(s){
@@ -816,15 +829,15 @@ case'waterAll':{let n=0;for(let b of s.buildings)if(b.type==='plot'&&actionWater
 case'harvestAll':{let n=0;for(let b of s.buildings)if(b.type==='plot'&&actionHarvest(s,{id:b.id}).ok)n++;return n?okay('Собран урожай с '+n+' грядок'):fail('Нет созревшего урожая или склад заполнен');}
 case'well':case'refill':{if(action==='well'&&(!b||b.type!=='well'||!built(s,b)))return fail('Выберите готовый колодец');if(!s.buildings.some(b=>b.type==='well'&&built(s,b)))return fail('Нужен колодец');let qty=Math.min(TUNING.wellAmount,freeSpace(s));if(!qty)return fail('Освободите место на складе для воды');addItems(s,{water:qty});return okay('Набрано '+qty+' воды бесплатно',{qty});}
 case'build':{let d=BUILDINGS[p.type];if(!d)return fail('Постройка не найдена');if(s.level<d.unlock)return fail('Откроется на уровне '+d.unlock);if(d.unique&&s.buildings.some(b=>b.type===p.type))return fail('Эта постройка уже есть на ферме');let place=checkPlace(s,p);if(!place.ok)return fail(place.reason);const price=buildPreview(s,p.type);if(!price.available)return fail(price.reason);pay(s,price.cost);let nb=makeBuilding(s,p.type,p.x,p.y,p.rotation||0,true);nb.investment=clone(price.cost);rerouteWorkers(s);s.stats.built++;return okay(d.name+': '+(nb.constructionUntil?'строительство началось':'построено'),{id:nb.id});}
-case'upgrade':{if(roadLevel(b)){
-  const up=roadUpgrade(s,b);
+case'upgrade':{const road=roadLevel(b),fence=fenceLevel(b);if(road||fence){
+  const up=road?roadUpgrade(s,b):fenceUpgrade(s,b);
   if(!up.available)return fail(up.reason);
   pay(s,up.cost);
   for(const k of ['coins','wood','stone'])b.investment[k]=safe((b.investment[k]||0)+(up.cost[k]||0));
   b.level++;
   s.stats.upgrades++;
-  rerouteWorkers(s);
-  return okay('Дорожка улучшена: '+ROAD_LEVELS[up.toLevel-1].name);
+  if(road)rerouteWorkers(s);
+  return okay(road?'Дорожка улучшена: '+ROAD_LEVELS[up.toLevel-1].name:'Материал улучшен: '+FENCE_LEVELS[up.toLevel-1]);
 }let pre=upgradePreview(s,b);if(!pre.available)return fail(pre.reason);pay(s,pre.cost);for(let k of ['coins','wood','stone'])b.investment[k]=safe((b.investment[k]||0)+(pre.cost[k]||0));b.upgrade={end:s.time+pre.seconds,toLevel:pre.toLevel,cost:clone(pre.cost)};return okay('Модернизация оплачена. Текущие партии сохраняют свои условия.');}
 case'move':{if(!b)return fail('Постройка не найдена');let place=checkPlace(s,{type:b.type,x:p.x,y:p.y,rotation:p.rotation??b.rotation,moveId:b.id});if(!place.ok)return fail(place.reason);b.x=p.x;b.y=p.y;b.rotation=p.rotation??b.rotation;Object.assign(b,dimensions(b.type,b.rotation));rerouteWorkers(s);return okay('Объект перенесён. Уровень, содержимое и очереди сохранены.',{id:b.id});}
 case'land':{let {cx,cy}=p;if(!Number.isSafeInteger(cx)||!Number.isSafeInteger(cy))return fail('Выберите соседний участок');if(!inWorld(cx,cy))return fail('Это край карты. Все '+WORLD_SECTORS+' участков ограничены координатами от −'+WORLD_RADIUS+' до +'+WORLD_RADIUS+'.');let key=landKey(cx,cy);if(s.lands[key])return fail('Эта земля уже ваша');if(![[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>s.lands[landKey(cx+dx,cy+dy)]))return fail('Можно покупать только соседнюю землю');let info=landInfo(s,cx,cy);if(!canPay(s,info.cost))return fail(costReason(s,info.cost));pay(s,info.cost);s.lands[key]={cx,cy,cleared:[],forageAt:s.time};addXp(s,TUNING.landXp+Math.floor(info.cost.coins/TUNING.landGoldXpDivisor));return okay('Куплен участок «'+info.name+'». За ним доступны новые земли.',{key});}
@@ -866,7 +879,7 @@ if(s.nextId<=maxId)bad('Счётчик идентификаторов может
 }catch(e){return {ok:false,msg:e.message||'Повреждённое сохранение'};}}
 for(const [type,bonus]of [['path_wood',20],['path_stone',35],['path_brick',50]])BUILDINGS[type].desc+=' Скорость помощника на дорожке +'+bonus+'%. Маршрут выбирается по времени.';
 for(const d of Object.values(BUILDINGS))d.constructionSeconds=d.category==='decoration'||d.id==='plot'?0:Math.min(50,5+d.unlock*.25);
-const FC={shareBuildingCell,occupyBuildingCell,ROAD_LEVELS,roadLevel,roadUpgrade,FARM_RULES,buildPreview,cottageLimit,weedStage,roadSpeed,findPath,workerMovement,SOCIAL,neighborBonus,dispatchBonus,marketStats,marketJob,TUNING,VERSION,CHUNK,SAFE,DEFAULT_FARM_NAME,FARM_NAME_LIMIT,normalizeFarmName,validFarmName,WORLD_MIN,WORLD_MAX,WORLD_RADIUS,WORLD_SECTORS,inWorld,ECONOMY,BUILDINGS,CROPS,VARIETIES,ITEMS,RECIPES,BIOMES,TASKS,workerVisual,create,step,act,levelNeed,technologyLevel,technology,statsFor,upgradePreview,specializePreview,demolishPreview,cropPreview,recipesFor,batchFor,used,capacity,freeSpace,workerCapacity,landInfo,frontier,checkPlace,validate,fmt,landOf,buildingById,itemValue,overlap};root.FC=FC;if(typeof module!=='undefined'&&module.exports)module.exports=FC;
+const FC={shareBuildingCell,occupyBuildingCell,ROAD_LEVELS,roadLevel,roadUpgrade,FENCE_LEVELS,fenceLevel,fenceUpgrade,FARM_RULES,buildPreview,cottageLimit,weedStage,roadSpeed,findPath,workerMovement,SOCIAL,neighborBonus,dispatchBonus,marketStats,marketJob,TUNING,VERSION,CHUNK,SAFE,DEFAULT_FARM_NAME,FARM_NAME_LIMIT,normalizeFarmName,validFarmName,WORLD_MIN,WORLD_MAX,WORLD_RADIUS,WORLD_SECTORS,inWorld,ECONOMY,BUILDINGS,CROPS,VARIETIES,ITEMS,RECIPES,BIOMES,TASKS,workerVisual,create,step,act,levelNeed,technologyLevel,technology,statsFor,upgradePreview,specializePreview,demolishPreview,cropPreview,recipesFor,batchFor,used,capacity,freeSpace,workerCapacity,landInfo,frontier,checkPlace,validate,fmt,landOf,buildingById,itemValue,overlap};root.FC=FC;if(typeof module!=='undefined'&&module.exports)module.exports=FC;
 })(typeof globalThis!=='undefined'?globalThis:this);
 </script>
 <script>
@@ -1685,7 +1698,7 @@ function roadImage(layout,x,y,w,h,done){
   let buildingImageVersion=0;
   function optionalBuildingImage(b,world,allowCachedFallback=true){
     const cfg=G.FarmBuildingSprites||BUILDING_SPRITE_DEFAULTS;
-    if(cfg.enabled===false)return null;
+    if(cfg.enabled===false||G.FC.fenceLevel(b))return null;
     if(cfg!==spriteConfig){spriteConfig=cfg;knownSpriteLevels=new Map();BUILDING_RESOLUTIONS.clear();}
     const level=Math.min(Number.MAX_SAFE_INTEGER,Math.max(1,Math.floor(Number(b.level)||1)));
     const rotation=((Math.floor(Number(b.rotation)||0)%4)+4)%4,key=b.type+'|'+level+'|'+rotation;
@@ -1709,6 +1722,67 @@ function roadImage(layout,x,y,w,h,done){
     return state.fallback||state.record;
   }
   const FEMALE_WORKER_NAMES=new Set(['маша','мария','соня','софья','софия','анна','полина','ольга','елена','наталья','татьяна','ирина','екатерина','дарья','алиса','вера','надежда','любовь','юлия','светлана','валентина','людмила','галина','евгения','александра','виктория','марина','нина','лидия','ксения']);
+  // The timber dimensions, palettes and face outlines are taken from the game.
+  const fenceWood = ['#dfb77b','#bf965b','#956d3e'];
+  const woodCap = ['#e6c58e','#c59b63','#a97b45'];
+  const woodTip = ['#f2d19c','#d4ae75','#a77e48'];
+  const hardware = ['#9fb2a0','#6c8a75','#526c59'];
+  const fenceStone = ['#c7c6b0','#a5aa97','#858d7b'];
+  const stoneCap = ['#dfddc9','#b6baa6','#a0a48f'];
+  const fenceIron = ['#a1b0b2','#71858a','#51656d'];
+  const ironCap = ['#c6cfca','#8c9b9b','#6d8083'];
+  const normalizeFenceX = u => (u-.08)/.84;
+  
+  function fencePost(mesh,level){
+    if(level===1){
+      mesh.box(normalizeFenceX(.055),-.025,.05/.84,.05,0,17,fenceWood);
+      mesh.box(normalizeFenceX(.037),-.04,.086/.84,.08,16,17.3,woodCap);
+    }else if(level===2){
+      mesh.box(-.066,-.062,.132,.124,0,2,stoneCap);
+      for(const z of [2,6.5,11])mesh.box(-.057,-.052,.114,.104,z,z+4.45,fenceStone);
+      mesh.box(-.073,-.067,.146,.134,15.3,17.4,stoneCap);
+    }else{
+      mesh.box(-.041,-.035,.082,.07,0,1.8,ironCap);
+      mesh.box(-.028,-.023,.056,.046,1.8,17,fenceIron);
+      mesh.box(-.039,-.034,.078,.068,16,17.7,ironCap);
+    }
+  }
+  function fenceSpan(mesh,level,lo=0,hi=1){
+    const box=(x,y,w,h,z0,z1,colors)=>{
+      const a=Math.max(lo,x),b=Math.min(hi,x+w);
+      if(b>a+.002)mesh.box(a,y,b-a,h,z0,z1,colors);
+    };
+    if(level===1){
+      const start=Math.max(lo,normalizeFenceX(.10)),end=Math.min(hi,normalizeFenceX(.90));
+      if(end>start)mesh.beam([start,.02,4.8+(start-normalizeFenceX(.10))*8.4],[end,.02,4.8+(end-normalizeFenceX(.10))*8.4],.027,'#b38e58');
+      for(const z of [5,12])box(0,-.015,1,.033,z,z+1.6,fenceWood);
+      for(let i=0;i<5;i++){
+        const x=.19+i*.153;
+        if((lo===.5||hi===.5)&&Math.abs(normalizeFenceX(x+.02)-.5)<.045)continue;
+        box(normalizeFenceX(x),-.04,.043/.84,.07,2,14,fenceWood);
+        box(normalizeFenceX(x-.005),-.045,.053/.84,.08,14,15,woodTip);
+      }
+    }else if(level===2){
+      box(lo,-.044,hi-lo,.088,0,12.9,['#979e8b','#8a9180','#707c6b']);
+      for(let row=0;row<3;row++){
+        for(let i=-1;i<4;i++){
+          const x=i/4+(row%2)*.125+.009;
+          box(x,-.047,.231,.094,row*4.25+.28,row*4.25+4.14,(i+row)%3===0?stoneCap:fenceStone);
+        }
+      }
+      box(lo,-.054,hi-lo,.108,12.8,14.1,stoneCap);
+    }else{
+      for(const z of [4.8,11.6])box(0,-.017,1,.035,z,z+1.1,fenceIron);
+      for(let i=0;i<9;i++){
+        const x=(i+.5)/9;
+        if((lo===.5||hi===.5)&&i===4)continue;
+        box(x-.012,-.018,.024,.036,2,14,fenceIron);
+        box(x-.017,-.02,.034,.04,13.8,14.75,ironCap);
+        box(x-.007,-.01,.014,.02,14.75,15.8,ironCap);
+      }
+    }
+  }
+  const fenceDirections=[[1,0],[0,1],[-1,0],[0,-1]];
   class FarmWorld {
     constructor(canvas, options) {
       this.canvas=canvas; this.ctx=canvas.getContext('2d'); this.options=options; this.selectedId=null;
@@ -1781,8 +1855,8 @@ function roadImage(layout,x,y,w,h,done){
       if(!rebuild&&stamp===this._indexStamp&&workerCount===this._workerCount)return;
       this._indexStamp=stamp;this._indexCount=n;this._workerCount=workerCount;
       if(rebuild){
-        this._index.clear();this._byId.clear();this._fenceNeighbors=new Set((s.buildings||[]).filter(b=>['fence','gate'].includes(b.type)).map(b=>[b.x,b.y,(b.rotation||0)%4].join(',')));this._fenceNeighborsState=s;
-        for(const b of s.buildings||[]){this._byId.set(b.id,b);const key=`${Math.floor(b.x/CHUNK)},${Math.floor(b.y/CHUNK)}`;if(!this._index.has(key))this._index.set(key,[]);this._index.get(key).push(b);}
+        this._index.clear();this._byId.clear();this._fenceNeighbors=new Map();
+        for(const b of s.buildings||[]){this._byId.set(b.id,b);if(G.FC.fenceLevel(b))this._fenceNeighbors.set(b.x+','+b.y,b);const key=`${Math.floor(b.x/CHUNK)},${Math.floor(b.y/CHUNK)}`;if(!this._index.has(key))this._index.set(key,[]);this._index.get(key).push(b);}
       }
       this._workerIndex.clear();
       for(const w of s.workers||[]){const key=`${Math.floor((Number.isFinite(w.x)?w.x:7.5)/CHUNK)},${Math.floor((Number.isFinite(w.y)?w.y:5.5)/CHUNK)}`;if(!this._workerIndex.has(key))this._workerIndex.set(key,[]);this._workerIndex.get(key).push(w);}
@@ -1825,6 +1899,8 @@ function roadImage(layout,x,y,w,h,done){
       this._roads(c,groundPaths);
       const selectedRoad=groundPaths.find(b=>b.id===this.selectedId);
       if(selectedRoad)tile(c,selectedRoad.x,selectedRoad.y,1,1,'#fae56d24','#fae681',2);
+      const selectedGate=buildings.find(b=>b.id===this.selectedId&&b.type==='gate');
+      if(selectedGate)tile(c,selectedGate.x-.09,selectedGate.y-.09,1.18,1.18,'#faf2a93d','#faee90',2.8);
       if(this.placement||this.options.getMode?.()==='arrange')this._grid(c,lands,pal);
       for(const land of lands)for(const w of this._workerIndex.get(land.key||`${land.cx},${land.cy}`)||[]){const b=this._byId.get(w.buildingId),display=this._displayWorker(w,workerAlpha),wx=Number.isFinite(display.x)?display.x+.5:(b?b.x+.5:7.5),wy=Number.isFinite(display.y)?display.y+.5:(b?b.y+1:5.5);if(w.atHome&&!display.moving)continue;objects.push({kind:'worker',data:{...display,x:wx,y:wy,visual:G.FC.workerVisual(w)},depth:wx+wy+.3});}
       this._visibleBuildings=buildings.sort((a,b)=>(a.x+a.y+(a.w||1)+(a.h||1))-(b.x+b.y+(b.w||1)+(b.h||1)));
@@ -1884,7 +1960,7 @@ function roadImage(layout,x,y,w,h,done){
       const bounds=this._viewportBounds(),unique=new Map();
       for(const b of this.options.getState()?.buildings||[]){
         const def=G.FC.BUILDINGS[b.type]||{};
-        if(!this._isPath(b)&&this._inViewport(b.x,b.y,b.w||def.w||1,b.h||def.h||1,bounds))unique.set(buildingImageName(b),b);
+        if(!this._isPath(b)&&!G.FC.fenceLevel(b)&&this._inViewport(b.x,b.y,b.w||def.w||1,b.h||def.h||1,bounds))unique.set(buildingImageName(b),b);
       }
       if(!unique.size)return;
       // Optional art should never hold the whole farm on the loading screen.
@@ -2095,20 +2171,69 @@ function roadImage(layout,x,y,w,h,done){
       c.restore();
     }
     _gateParts(b){
-      const sprite=optionalBuildingImage(b,this);
-      if(sprite?.status==='loading')return [];
-      if(sprite)return [{kind:'building',data:b,depth:b.x+b.y+(b.w||1)+(b.h||1)}];
-      const r=(b.rotation||0)%4,R=(u,v)=>r===0?[u,v]:r===1?[1-v,u]:r===2?[1-u,1-v]:[v,1-u];
-      return [0,1].map(part=>{const u=part?.9167:-.0417,points=[[u,.45],[u+.125,.45],[u+.125,.99],[u,.99]].map(([x,y])=>R(x,y)),xs=points.map(p=>p[0]+b.x),ys=points.map(p=>p[1]+b.y),x=Math.min(...xs),y=Math.min(...ys),w=Math.max(...xs)-x,h=Math.max(...ys)-y;return {kind:'gatePart',data:{gate:b,part,x,y,w,h},depth:x+y+(w+h)/2};}).sort((a,b)=>a.depth-b.depth);
+      const [dx,dy]=fenceDirections[b.rotation||0];
+      const R=(u,v)=>[.5+(u-.5)*dx-(v-.5)*dy,.5+(u-.5)*dy+(v-.5)*dx];
+      return [0,1].map(part=>{
+        const u=part?1:0,points=[[u-.075,.425],[u+.075,.425],[u+.075,.99],[u-.075,.99]].map(([x,y])=>R(x,y));
+        const xs=points.map(p=>p[0]+b.x),ys=points.map(p=>p[1]+b.y),x=Math.min(...xs),y=Math.min(...ys);
+        const w=Math.max(...xs)-x,h=Math.max(...ys)-y;
+        return {kind:'gatePart',data:{gate:b,part,x,y,w,h},depth:x+y+(w+h)/2};
+      }).sort((a,b)=>a.depth-b.depth);
     }
     _gatePart(c,b,part){this._smallModel(c,b,m=>{
-      const original=m.world.bind(m),wood=['#dfb77b','#bf965b','#956d3e'],metal=['#9fb2a0','#6c8a75','#526c59'];m.world=([u,v,z])=>original([(u-.08)/.84,v,z]);
-      const mirror=x=>part?1-x:x,box=(x,y,w,h,lo,hi,col)=>m.box(part?1-x-w:x,y,w,h,lo,hi,col);
-      box(.055,.48,.05,.05,0,17,wood);box(.037,.465,.086,.08,16,17.3,['#e6c58e','#c59b63','#a97b45']);
-      for(const z of [5,12])box(.105,.53,.038,.39,z,z+1.7,wood);
-      for(let i=0;i<4;i++){box(.08,.55+i*.112,.075,.045,2,14,wood);box(.075,.545+i*.112,.085,.055,14,15,['#efcc91','#cba16a','#9b743f']);}
-      for(const z of [4,12])box(.073,.485,.09,.09,z,z+.7,metal);
-      m.face([[mirror(.115),.56,4.5],[mirror(.115),.88,11],[mirror(.115),.88,12.2],[mirror(.115),.56,5.7]],'#bd955a','#735335',.45,true);box(.10,.91,.045,.055,8,10,metal);},'gate:'+part);
+      const world=m.world.bind(m),level=G.FC.fenceLevel(b);
+      const box=(x,y,w,h,lo,hi,col)=>m.box(part?1-x-w:x,y,w,h,lo,hi,col);
+      m.world=([u,v,z])=>world([part+u,.505+v,z]);fencePost(m,level);
+      m.world=([u,v,z])=>world([normalizeFenceX(u),v,z]);
+      const panel=level===3?fenceIron:level===2?['#b59670','#8d6d4e','#765b44']:fenceWood;
+      const trim=level===3?ironCap:level===2?hardware:['#efcc91','#cba16a','#9b743f'];
+      for(const z of [5,12])box(.105,.53,.038,.39,z,z+1.7,panel);
+      for(let i=0;i<(level===3?6:4);i++){
+        const offset=level===3?i*.067:i*.112;
+        box(.08,.55+offset,level===3?.041:.075,level===3?.024:.045,2,14,panel);
+        box(.075,.545+offset,level===3?.05:.085,level===3?.034:.055,14,15,trim);
+      }
+      for(const z of [4,12])box(.073,.485,.09,.09,z,z+.7,hardware);
+      const u=part?.885:.115;
+      if(level!==3)m.face([[u,.56,4.5],[u,.88,11],[u,.88,12.2],[u,.56,5.7]],'#bd955a','#735335',.45,true);
+      box(.10,.91,.045,.055,8,10,hardware);
+    },'gate:'+G.FC.fenceLevel(b)+':'+part);}
+    _fence(c,b,ghost){
+      const level=G.FC.fenceLevel(b),moveId=ghost?this.placement?.moveId:null;
+      const neighbors=fenceDirections.map(([dx,dy],side)=>{
+        const other=this._fenceNeighbors?.get((b.x+dx)+','+(b.y+dy));
+        return other&&other.id!==moveId&&(other.type==='fence'||other.rotation%2===side%2)?other:null;
+      });
+      const mask=neighbors.reduce((bits,other,i)=>other?bits|(1<<i):bits,0);
+      const postLevels=neighbors.map((other,side)=>!other?level:
+        other.type==='gate'||side>=2?0:Math.max(level,G.FC.fenceLevel(other)));
+      this._smallModel(c,{...b,rotation:0},m=>{
+        const world=m.world.bind(m);
+        const span=(axis,lo,hi)=>{
+          m.world=([u,v,z])=>axis===0?world([u,.505+v,z]):world([.495-v,u,z]);
+          fenceSpan(m,level,lo,hi);
+        };
+        const post=(x,y,material)=>{
+          if(!material)return;
+          m.world=([u,v,z])=>world([x+u,y+v,z]);fencePost(m,material);
+        };
+        if([0,1,2,4,5,8,10].includes(mask)){
+          const axis=mask===0?b.rotation%2:mask&5?0:1;
+          span(axis,0,1);
+          for(const side of [axis,axis+2]){
+            const [dx,dy]=fenceDirections[side];
+            post(.5+dx*.5,.5+dy*.5,postLevels[side]);
+          }
+        }else{
+          for(let side=0;side<4;side++){
+            if(!(mask&(1<<side)))continue;
+            const [dx,dy]=fenceDirections[side];
+            span(side%2,side<2?.5:0,side<2?1:.5);
+            post(.5+dx*.5,.5+dy*.5,postLevels[side]);
+          }
+          post(.5,.5,level);
+        }
+      },'fence:'+level+':'+mask+':'+(mask===0?b.rotation%2:0)+':'+postLevels.join(''));
     }
 
     _orderPeople(objects,sceneKey=null){
@@ -2292,6 +2417,7 @@ function roadImage(layout,x,y,w,h,done){
         ellipse(c,p.x+2,p.y+2,3,3*.27,'#193c2828');
       }
       if(b.type==='gate'){for(const part of this._gateParts(b))this._gatePart(c,b,part.data.part);return;}
+      if(b.type==='fence'){this._fence(c,b,ghost);return;}
       if(b.type==='plot'){this._plot(c,b);return;}
       if(b.type==='market'){this._marketModel(c,b);return;}
       if(b.type==='kennel'){this._kennelModel(c,b);return;}
@@ -2299,7 +2425,7 @@ function roadImage(layout,x,y,w,h,done){
 
       if(b.type==='bakery'){this._bakery(c,b);return;}
       if(b.type!=='orchard'&&d.category!=='decoration'){this._model(c,b);return;}
-      if(d.category==='decoration'){if(['bench','table','gazebo','fence','sign','lamp','cart'].includes(b.type))this._modelDecor(c,b);else this._decor(c,b,d);return;}
+      if(d.category==='decoration'){if(['bench','table','gazebo','sign','lamp','cart'].includes(b.type))this._modelDecor(c,b);else this._decor(c,b,d);return;}
       ellipse(c,p.x+7,p.y+5,(w+h)*TW/4*.71,(w+h)*TH/4*.52,'#0f4e2a23');
       if(b.type==='orchard'){
         const m=new BuildingMesh(c,b,d.w,d.h),trees=[];
@@ -2513,11 +2639,7 @@ function roadImage(layout,x,y,w,h,done){
       m.flush();
     }
     _modelDecor(c,b){
-      const r=(b.rotation||0)%4,back=[[-1,0],[0,-1],[1,0],[0,1]][r],joinedStart=b.type==='fence'&&(this._fenceNeighborsState===this._s&&this._indexStamp!==-1?this._fenceNeighbors.has([b.x+back[0],b.y+back[1],r].join(',')):(this._s?.buildings||[]).some(a=>a.id!==b.id&&['fence','gate'].includes(a.type)&&(a.rotation||0)%4===r&&a.x===b.x+back[0]&&a.y===b.y+back[1]));
       this._smallModel(c,b,m=>{const d=G.FC.BUILDINGS[b.type],w=d.w,h=d.h,wood=['#dfb77b','#bf965b','#956d3e'],metal=['#9fb2a0','#6c8a75','#526c59'],type=b.type;
-      if(type==='fence'){
-        const original=m.world.bind(m);m.world=([u,v,z])=>original([(u-.08)/.84,v,z]);
-      }
       if(type==='bench'||type==='table'){
         const x=.16,y=.23,W=.70,H=type==='table'?.55:.36,z=type==='table'?13:7;
         for(const xx of [x+.05,x+W-.09])for(const yy of [y+.04,y+H-.08])m.box(xx,yy,.045,.045,0,z,wood);
@@ -2550,20 +2672,6 @@ function roadImage(layout,x,y,w,h,done){
 
         for(const yy of [.18,h-.18]){m.beam([.2,yy,32],[w/2,yy,41.8],.035,'#c8aa77');m.beam([w/2,yy,41.8],[w-.2,yy,32],.035,'#c8aa77');m.box(.2,yy,w-.4,.035,31,32,wood);}
         m.gableMaterial=null;
-      }else if(type==='fence'){
-        for(const xx of [.08,.92]){
-          if(xx===.08&&joinedStart)continue;
-          m.box(xx-.025,.48,.05,.05,0,17,wood);
-          m.box(xx-.043,.465,.086,.08,16,17.3,['#e6c58e','#c59b63','#a97b45']);
-        }
-          m.beam([.10,.525,4.8],[.90,.525,12.8],.027,'#b38e58');
-          // Closed picket segment: an impassable fence across the whole tile.
-          for(const zz of [5,12])m.box(.08,.49,.84,.033,zz,zz+1.6,wood);
-          for(let i=0;i<5;i++){
-            const xx=.19+i*.153;
-            m.box(xx,.465,.043,.07,2,14,wood);
-            m.box(xx-.005,.46,.053,.08,14,15,['#f2d19c','#d4ae75','#a77e48']);
-          }
       }else if(type==='sign'){
         m.box(.47,.47,.05,.05,0,24,wood);m.box(.13,.44,.74,.1,19,31,wood);for(let z=23;z<31;z+=4)m.front(.13,.542,.74,z,z+.3,'#9d774c');
         m.front(.28,.545,.4,23.7,25.7,'#3c5c3b');m.face([[.68,.545,22],[.80,.545,24.8],[.68,.545,27]],'#496445',null,.5,true);
@@ -3496,7 +3604,7 @@ function roadImage(layout,x,y,w,h,done){
       c.restore();
     }
     _selectionLabel(c,b,pal){
-      if(!b||this.placement)return;const d=G.FC.BUILDINGS[b.type]||{},w=b.w||d.w||1,h=b.h||d.h||1,z=b.type==='plot'?31:b.type==='kennel'?60:d.category==='decoration'?40:88,q=pt(b.x+w/2,b.y+h/2,z),name=`${d.name||'Постройка'} · ур. ${b.level||1}`;c.font='600 11px system-ui';const width=c.measureText(name).width+22;round(c,q.x-width/2,q.y-12,width,24,9,pal.labelBg,pal.labelBorder);c.fillStyle=pal.labelInk;c.textAlign='center';c.fillText(name,q.x,q.y+4);
+      if(!b||this.placement)return;const d=G.FC.BUILDINGS[b.type]||{},w=b.w||d.w||1,h=b.h||d.h||1,z=b.type==='plot'?31:b.type==='kennel'?60:d.category==='decoration'?40:88,q=pt(b.x+w/2,b.y+h/2,z),name=`${G.FC.fenceLevel(b)?(b.type==='gate'?'Ворота':'Забор')+' · '+G.FC.FENCE_LEVELS[G.FC.fenceLevel(b)-1]:d.name||'Постройка'} · ур. ${G.FC.fenceLevel(b)||b.level||1}`;c.font='600 11px system-ui';const width=c.measureText(name).width+22;round(c,q.x-width/2,q.y-12,width,24,9,pal.labelBg,pal.labelBorder);c.fillStyle=pal.labelInk;c.textAlign='center';c.fillText(name,q.x,q.y+4);
     }
     _status(c,b,pal){
       const d=G.FC.BUILDINGS[b.type]||{};if(d.category==='decoration')return;
@@ -3936,10 +4044,10 @@ function hidePanel(){if($('panel').contains(document.activeElement))document.act
 function setSection(value){section=value;selectedNature=null;if(value!=='farm')selectedId=null;if(value!=='build')cancelPlacement();showPanel();render(true);}
 function cancelPlacement(){placement=null;if(world)world.setPlacement(null);$('placementBar').classList.add('hide');}
 function startPlacement(type,moveId){const b=moveId?state.buildings.find(b=>b.id===moveId):null;placement={type,moveId:moveId||null,rotation:b?.rotation||0};world.setPlacement(placement);renderPlacement();if(innerWidth<981)hidePanel();toast(moveId?'Выберите новое место. Очереди и содержимое сохранятся.':'Нажмите на свободную землю для размещения.');}
-function renderPlacement(){if(!placement)return;const d=FC.BUILDINGS[placement.type];$('placementBar').classList.remove('hide');$('placementBar').innerHTML='<div class="row spread"><div><b>'+(placement.moveId?'Перенос: ':'Размещение: ')+h(d.name)+'</b><div class="tiny muted" style="margin-top:4px">Зелёный контур — место доступно'+(!placement.moveId?' · Цена: '+fmt(FC.buildPreview(state,placement.type).cost.coins||0)+' монет':'')+(!placement.moveId&&!d.unique?' · Можно ставить подряд':'')+'</div></div><div class="row gap6"><button data-action="rotatePlacement" title="Поворот · R">↻ '+(placement.rotation*90)+'°</button><button data-action="cancelPlacement" title="Отмена · Escape">✕</button></div></div>';}
+function renderPlacement(){if(!placement)return;const d=FC.BUILDINGS[placement.type];$('placementBar').classList.remove('hide');$('placementBar').innerHTML='<div class="row spread"><div><b>'+(placement.moveId?'Перенос: ':'Размещение: ')+h(d.name)+'</b><div class="tiny muted" style="margin-top:4px">Зелёный контур — место доступно'+(placement.type==='gate'?' · Открытие '+gateOpeningArrows[placement.rotation]:'')+(!placement.moveId?' · Цена: '+fmt(FC.buildPreview(state,placement.type).cost.coins||0)+' монет':'')+(!placement.moveId&&!d.unique?' · Можно ставить подряд':'')+'</div></div><div class="row gap6"><button data-action="rotatePlacement" title="Поворот · R">↻ '+(placement.rotation*90)+'°</button><button data-action="cancelPlacement" title="Отмена · Escape">✕</button></div></div>';}
 function openModal(title,body,confirmLabel,callback,kind=''){lastFrame=performance.now();modalOpen=true;modalCallback=callback||null;$('modalRoot').classList.remove('hide');$('modalRoot').innerHTML='<section class="modal" role="dialog" aria-modal="true" aria-label="'+h(title)+'"><div class="modal-head"><h2>'+h(title)+'</h2><button class="icon-btn" data-action="closeModal" aria-label="Закрыть">'+ico('close',20)+'</button></div><div class="modal-body">'+body+'</div><div class="modal-footer">'+btn(confirmLabel?'Отмена':'Понятно','closeModal',{},'ghost')+(confirmLabel?btn(h(confirmLabel),'confirmModal',{},kind):'')+'</div></section>';setTimeout(()=>$('modalRoot').querySelector('button')?.focus(),0);}
 function closeModal(){lastFrame=performance.now();modalOpen=false;modalCallback=null;$('modalRoot').classList.add('hide');$('modalRoot').innerHTML='';}
-function buildingTitle(b){if(FC.roadLevel(b))return 'Дорожка · '+FC.ROAD_LEVELS[FC.roadLevel(b)-1].name;if(b.type==='plot'&&b.plant)return FC.CROPS[b.plant.crop]?.name||FC.BUILDINGS[b.type].name;return FC.BUILDINGS[b.type]?.name||'Постройка';}
+function buildingTitle(b){if(FC.fenceLevel(b))return (b.type==='gate'?'Ворота':'Забор')+' · '+FC.FENCE_LEVELS[FC.fenceLevel(b)-1];if(FC.roadLevel(b))return 'Дорожка · '+FC.ROAD_LEVELS[FC.roadLevel(b)-1].name;if(b.type==='plot'&&b.plant)return FC.CROPS[b.plant.crop]?.name||FC.BUILDINGS[b.type].name;return FC.BUILDINGS[b.type]?.name||'Постройка';}
 function onPick(hit){
   if(FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy))return;
   if(!state||modalOpen)return;
@@ -4025,18 +4133,30 @@ function renderRoad(b){
   return out+sectionTitle('Обустройство')+btn('Переместить','moveStart',{id:b.id},'ghost full')
     +btn('Убрать дорожку','demolishPreview',{id:b.id},'danger full topgap');
 }
+const gateOpeningArrows=['↙','↖','↗','↘'];
+function renderFence(b){
+  const level=FC.fenceLevel(b),isGate=b.type==='gate',up=FC.fenceUpgrade(state,b);
+  let out='<div class="object-hero"><div class="object-art">'+(isGate?'🚪':['🪵','🪨','⚒️'][level-1])+'</div><div><div class="object-name">'+h(buildingTitle(b))+'</div><span class="badge topgap">Уровень '+level+'</span></div></div>';
+  out+=note(isGate?'Сторона открытия '+gateOpeningArrows[b.rotation]+'. Помощники проходят через ворота.':'Секции соединяются с соседними заборами и с воротами вдоль их оси.');
+  if(isGate){
+    const road=state.buildings.find(a=>a.x===b.x&&a.y===b.y&&FC.roadLevel(a));
+    if(road)out+=btn('Дорожка под воротами','focusBuilding',{id:road.id},'secondary full topgap');
+  }
+  if(up.toLevel)out+='<div class="card soft topgap"><b>Уровень '+up.toLevel+' · '+FC.FENCE_LEVELS[up.toLevel-1]+'</b><div class="cost-line">'+cost(up.cost)+'</div>'
+    +btn('Улучшить материал','upgradePreview',{id:b.id},'full',!up.available)+(up.reason?note(up.reason):'')+'</div>';
+  return out+sectionTitle('Обустройство')+'<div class="row">'+btn(ico('move',16)+' Переместить','moveStart',{id:b.id},'ghost grow')
+    +btn('↻ Повернуть','rotateBuilding',{id:b.id},'ghost grow')+'</div>'
+    +btn(isGate?'Убрать ворота':'Убрать забор','demolishPreview',{id:b.id},'danger full topgap');
+}
 function renderBuilding(b){
   if(FC.roadLevel(b))return renderRoad(b);
+  if(FC.fenceLevel(b))return renderFence(b);
   const d=FC.BUILDINGS[b.type],st=FC.statsFor(state,b),decor=d.category==='decoration';
   const generation=b.level<2?'Обычная постройка':b.level<4?'Механизированная постройка':b.level<7?'Автоматизированная постройка':'Технологическое поколение '+(Math.floor((b.level-1)/3)+1);
   let out='<div class="object-hero"><div class="object-art">'+d.icon+'</div><div><div class="object-name">'+h(d.name)+'</div><div class="generation-label">'+(decor?'Оформление вашей долины':h(generation))+'</div><span class="badge topgap">'+b.w+' × '+b.h+' клетки</span></div></div>';
   if(b.constructionUntil>state.time)out+='<div class="card gold"><b class="small">Строительство</b><div class="row spread topgap"><span class="tiny muted">Объект уже оплачен</span>'+remaining(b.constructionUntil)+'</div>'+progress(b.constructionUntil,b.constructionStart||Math.max(0,b.constructionUntil-15),'gold')+note('Постройка станет доступна после завершения работ.')+'</div>';
   if(b.upgrade)out+='<div class="card gold topgap"><b class="small">Модернизация до уровня '+b.upgrade.toLevel+'</b><div class="row spread topgap"><span class="tiny muted">Стоимость уже списана</span>'+remaining(b.upgrade.end)+'</div>'+progress(b.upgrade.end,b.upgrade.start||Math.max(0,b.upgrade.end-20),'gold')+note('Оплаченные партии работают на прежних условиях. Содержимое и помощники сохраняются.')+'</div>';
   out+=note(d.desc);
-  if(b.type==='gate'){
-    const road=state.buildings.find(a=>a.x===b.x&&a.y===b.y&&FC.roadLevel(a));
-    if(road)out+=btn('Дорожка под воротами','focusBuilding',{id:road.id},'secondary full topgap');
-  }
   if(b.type==='plot')out+=renderPlot(b);
   else if(b.type==='warehouse')out+='<div class="mini-grid topgap">'+stat(fmt(st.capacity),'вместимость этой постройки')+stat(fmt(FC.freeSpace(state)),'свободно на всех складах')+'</div>'+btn('Открыть склад и рынок','inventory',{},'full secondary topgap');
   else if(b.type==='house'||b.type==='cottage')out+='<div class="mini-grid topgap">'+stat(fmt(st.workerPlaces),'мест для работников')+stat(fmt(state.workers.length),'нанято на ферме')+'</div>'+btn('Назначить помощников','workers',{},'full secondary topgap');
@@ -4197,6 +4317,13 @@ function showUpgrade(id){
     const p=FC.roadUpgrade(state,b),next=FC.ROAD_LEVELS[p.toLevel-1];
     if(!next)return;
     openModal('Улучшить дорожку',note(next.name+' · уровень '+p.toLevel+' · скорость +'+Math.round(next.speed*100)+'%')
+      +'<div class="cost-line">'+cost(p.cost)+'</div>'+(p.reason?note(p.reason):''),
+      p.available?'Улучшить':'',()=>perform('upgrade',{id}));
+    return;
+  }
+  if(FC.fenceLevel(b)){
+    const p=FC.fenceUpgrade(state,b);
+    if(p.toLevel)openModal('Улучшить материал',note(FC.FENCE_LEVELS[p.toLevel-1]+' · уровень '+p.toLevel)
       +'<div class="cost-line">'+cost(p.cost)+'</div>'+(p.reason?note(p.reason):''),
       p.available?'Улучшить':'',()=>perform('upgrade',{id}));
     return;
