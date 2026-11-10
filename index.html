@@ -1358,7 +1358,7 @@ function roadImage(layout,x,y,w,h,done){
   const markup=definitions('road',new Set(layout.values()))
     +'<clipPath id="area"><rect x="'+x*size+'" y="'+y*size+'" width="'+w*size+'" height="'+h*size+'"/></clipPath>'
     +'<g transform="matrix('+matrix.join(' ')+')" clip-path="url(#area)">'
-    +recessedRoads('road',makePatches(layout),3.5/.98)+'</g>';
+    +recessedRoads('road',makePatches(layout),1.75/.98)+'</g>';
   const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+Math.ceil(width*1.5)+'" height="'+Math.ceil(height*1.5)
     +'" viewBox="0 0 '+width+' '+height+'">'+markup+'</svg>';
   const image=new Image();
