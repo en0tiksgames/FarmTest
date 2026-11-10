@@ -346,6 +346,7 @@ html body .float-open{gap:6px}
 @media(min-width:981px){html body .float-open{display:flex;right:22px;top:99px}}
 @media(max-width:980px){html body .stage{--field-tools-bottom:19px}}
 @media(max-width:600px){html body .stage{--field-tools-bottom:15px}html body .mode-bar{right:72px;flex-wrap:wrap}html body .mode-bar .tool-pill{padding-left:10px;padding-right:10px}}
+#harvestAllBtn[hidden]{display:none}
 html body.visiting .mode-bar{display:none}html body.visiting .hud{display:flex!important;justify-content:center;align-items:center}.visit-hud{width:100%}
 .farm-top-name{min-width:0;overflow-wrap:anywhere;flex:1}.farm-rank{flex-shrink:0}.land-visit-list{display:flex;flex-wrap:wrap;gap:5px}.visit-hud{display:flex;flex-direction:column;min-width:0;text-align:center;gap:4px}.visit-hud b{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:100%}.visit-banner{position:absolute;z-index:4;display:flex;align-items:center;justify-content:space-between;gap:8px}.visit-banner span{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.visit-banner button{flex-shrink:0}
 html body .visit-banner.tool-pill{left:22px;right:82px;bottom:var(--field-tools-bottom);max-width:540px;padding:10px 12px;font-size:12px}
@@ -411,7 +412,7 @@ html body .panel-body .section-title{margin-top:12px;margin-bottom:12px}
       <div class="stage-controls"><button data-action="zoom" data-p='{"factor":1.2}' title="Приблизить" aria-label="Приблизить">+</button><button data-action="home" title="К дому" aria-label="К дому">⌂</button><button data-action="zoom" data-p='{"factor":0.833333}' title="Отдалить" aria-label="Отдалить">−</button></div>
       <div id="visitBanner" class="visit-banner tool-pill hide"><span>В гостях: <b id="visitName"></b></span><button class="btn secondary sm" data-action="leaveVisit">На свою ферму</button></div>
       <div id="placementBar" class="placement-bar hide"></div>
-      <div class="mode-bar"><button id="arrangeBtn" class="tool-pill" data-action="arrange"></button><button class="tool-pill" data-action="harvestAll">🌾 Собрать всё</button><div class="map-help" id="mapHelp">Нажмите на грядку, чтобы посадить.<br>Перетаскивайте карту, чтобы осмотреться.</div></div>
+      <div class="mode-bar"><button id="arrangeBtn" class="tool-pill" data-action="arrange"></button><button id="harvestAllBtn" class="tool-pill" data-action="harvestAll" title="Помощники соберут созревший урожай после текущих дел" hidden>🌾 Собрать всё</button><div class="map-help" id="mapHelp">Нажмите на грядку, чтобы посадить.<br>Перетаскивайте карту, чтобы осмотреться.</div></div>
       <div id="pauseVeil" class="pause-veil hide"><div class="pause-card"><div style="font-size:33px">☕</div><h2>Ферма отдыхает</h2><p class="small muted">Все таймеры остановлены.<br>Можно продолжить в любой момент.</p><button class="btn" data-action="pause">Вернуться на ферму</button></div></div>
     </section>
     <aside id="panel" class="panel mobile-hidden" aria-label="Управление фермой"><div id="panelHead" class="panel-head"></div><div id="panelBody" class="panel-body"></div></aside>
@@ -539,6 +540,45 @@ function workerPlaces(type,level){return type==='house'?2+Math.floor((level-1)/2
 function capacity(s){let total=0;for(const b of s.buildings)if(built(s,b))total+=storageCapacity(b.type,b.level);return safe(ECONOMY.baseStorage+total);}
 function used(s){return sum(s.items);}
 function freeSpace(s){return Math.max(0,capacity(s)-used(s));}
+function cropItem(item){return !!CROPS[ITEMS[item]?.base||item];}
+function trimHarvestStock(s,item){
+  let remaining=s.items[item]||0;
+  for(const b of s.buildings){
+    const stock=b.harvestStored,qty=stock?.[item]||0;
+    if(!qty)continue;
+    const kept=Math.min(remaining,qty);
+    remaining-=kept;
+    if(kept)stock[item]=kept;else delete stock[item];
+  }
+}
+function removeItem(s,item,qty){
+  s.items[item]-=qty;
+  if(cropItem(item))trimHarvestStock(s,item);
+}
+function warehouseSlots(s){
+  const warehouses=[],remaining={...s.items};
+  let houseSpace=ECONOMY.baseStorage;
+  for(const b of s.buildings){
+    if(!built(s,b))continue;
+    if(b.type==='house'){houseSpace+=storageCapacity(b.type,b.level);continue;}
+    if(b.type!=='warehouse')continue;
+    let room=storageCapacity(b.type,b.level);
+    for(const [item,qty] of Object.entries(b.harvestStored||{})){
+      const placed=Math.min(qty,remaining[item]||0,room);
+      if(placed){remaining[item]-=placed;room-=placed;}
+    }
+    warehouses.push({b,room});
+  }
+  // Legacy and instant receipts use the common space first, then free warehouse slots.
+  let common=Math.max(0,sum(remaining)-houseSpace);
+  for(const slot of warehouses){
+    const filled=Math.min(common,slot.room);
+    slot.room-=filled;common-=filled;
+  }
+  return warehouses;
+}
+function warehouseFreeSpace(s,b){return warehouseSlots(s).find(slot=>slot.b===b)?.room||0;}
+
 
 // Shared simulation rules. No real-world time or offline charges.
 const FARM_RULES=Object.freeze({copyPriceStep:.25,wage:1,wageSeconds:60,weedSeconds:480,weedSpread:240,weedRates:[1,.9,.75],roadWood:1.2,roadStone:1.35,roadBrick:1.5,movementMax:3});
@@ -660,7 +700,7 @@ function itemValue(items){return Object.entries(items||{}).reduce((v,[k,n])=>v+(
 function canPay(s,cost){if(s.coins<(cost.coins||0))return false;for(let k of ['wood','stone'])if((s.items[k]||0)<(cost[k]||0))return false;return true;}
 function costReason(s,cost){if(s.coins<(cost.coins||0))return 'Недостаточно монет';for(let k of ['wood','stone'])if((s.items[k]||0)<(cost[k]||0))return 'Не хватает: '+ITEMS[k].name.toLowerCase();return '';}
 function pay(s,cost){s.coins-=cost.coins||0;for(let k of ['wood','stone'])s.items[k]=(s.items[k]||0)-(cost[k]||0);}
-function addItems(s,goods,partial=false){let space=freeSpace(s),given={};if(!partial&&sum(goods)>space)return null;for(const[k,n]of Object.entries(goods)){let add=Math.min(n,space,SAFE-(s.items[k]||0));if(add>0){s.items[k]=(s.items[k]||0)+add;given[k]=add;space-=add;}}return given;}
+function addItems(s,goods,partial=false){let space=freeSpace(s),given={};if(!partial&&sum(goods)>space)return null;for(const[k,n]of Object.entries(goods)){let add=Math.min(n,space,SAFE-(s.items[k]||0));if(add>0){if(cropItem(k))trimHarvestStock(s,k);s.items[k]=(s.items[k]||0)+add;given[k]=add;space-=add;}}return given;}
 function addCoins(s,n){s.coins=safe(s.coins+n);}
 function addXp(s,n){let value=safe(s.xp+n);let loops=0;while(value>=levelNeed(s.level)&&loops<100000){value-=levelNeed(s.level);s.level++;loops++;}s.xp=value;}
 function techName(n){if(n<=0)return 'Базовые технологии';if(n===1)return 'Автоматизированное хозяйство';return 'Технологическое поколение '+n;}
@@ -710,18 +750,39 @@ function makeBuilding(s,type,x,y,rotation=0,paid=false){const d=BUILDINGS[type],
 function create(seed){const s={version:VERSION,farmName:DEFAULT_FARM_NAME,seed:Number.isInteger(seed)?seed>>>0:Math.floor(Math.random()*4294967295),time:0,level:1,xp:0,coins:TUNING.initialGold,items:{wood:TUNING.initialWood,stone:TUNING.initialStone,water:TUNING.initialWater},lands:{'0,0':{cx:0,cy:0,cleared:[],forageAt:0}},buildings:[],workers:[],orders:[],tutorial:0,stats:{harvested:0,produced:0,orders:0,earned:0,built:0,upgrades:0,research:0},event:{type:'calm',until:TUNING.eventSeconds,index:0},nextId:1,paused:false,tech:0,lastAutomation:0,orderSerial:0};makeBuilding(s,'house',3,2);makeBuilding(s,'warehouse',9,2);makeBuilding(s,'well',7,6);for(let [x,y]of [[3,6],[4,6],[5,6],[3,8],[4,8],[5,8]])makeBuilding(s,'plot',x,y);s.orders.push({id:id(s,'o'),name:'Первый урожай',kind:'tutorial',requirements:{wheat:TUNING.tutorialWheat},delivered:{},reward:TUNING.tutorialReward,xp:TUNING.tutorialXp,completed:false});fillOrders(s);return s;}
 function availableGoods(s){let out=new Set(Object.keys(CROPS).filter(k=>CROPS[k].unlock<=s.level));for(let b of s.buildings)if(built(s,b))for(let r of recipesFor(s,b))if(r.available)for(let k of Object.keys(r.outputs))if(k!=='water'&&k!=='wood'&&k!=='stone')out.add(k);for(let b of s.buildings)if(b.type==='plot'&&b.settings.variety==='select'&&s.level>=VARIETIES.select.unlock){let crop=CROPS[b.settings.crop];if(crop&&crop.unlock<=s.level)out.add(crop.id+'_select');}return [...out];}
 function fillOrders(s){while(s.orders.filter(o=>!o.completed).length<TUNING.orderCount){let serial=++s.orderSerial,list=availableGoods(s),count=serial%4===0?Math.min(3,list.length):serial%3===0?Math.min(2,list.length):1;let req={},production=s.buildings.filter(b=>built(s,b)&&(BUILDINGS[b.type].recipes.length||b.type==='plot')).length;let scale=1+Math.floor(Math.sqrt(production)/2);let bulk=serial%4===0;for(let i=0;i<count;i++){let k=list[(Math.floor(hash(s.seed,serial,i,33)*list.length)+i)%list.length];req[k]=safe((req[k]||0)+(bulk?TUNING.bulkOrderQty:TUNING.localOrderQty)*scale);}let value=itemValue(req),premium=(s.event.type==='supply'?TUNING.supplyOrder:s.event.type==='trader'?TUNING.traderOrder:bulk?TUNING.bulkOrder:TUNING.localOrder);s.orders.push({id:id(s,'o'),name:bulk?'Большая поставка №'+serial:serial%3===0?'Заказ торговца №'+serial:'Соседский заказ №'+serial,kind:bulk?'bulk':serial%3===0?'trader':'local',requirements:req,delivered:{},reward:safe(Math.max(TUNING.orderMinGold,value*premium)),xp:safe(Math.max(TUNING.orderMinXp,value*TUNING.orderXp)),completed:false});}if(s.orders.length>20)s.orders=s.orders.filter(o=>!o.completed).concat(s.orders.filter(o=>o.completed).slice(-10));}
-function newOrder(s,p){let o=s.orders.find(o=>o.id===p.id);if(!o||o.completed)return fail('Этот заказ уже выполнен');let wouldComplete=Object.entries(o.requirements).every(([k,n])=>(s.items[k]||0)+(o.delivered[k]||0)>=n);if(wouldComplete&&s.coins+o.reward>SAFE)return fail('Перед получением награды вложите часть монет: достигнут предел точности счёта');let transferred=0;for(let[k,n]of Object.entries(o.requirements)){let q=Math.min((s.items[k]||0),n-(o.delivered[k]||0));if(q>0){s.items[k]-=q;o.delivered[k]=(o.delivered[k]||0)+q;transferred+=q;}}if(!transferred)return fail('Пока нечего передать. Нужные товары показаны в заказе.');let complete=Object.entries(o.requirements).every(([k,n])=>(o.delivered[k]||0)>=n);if(complete){o.completed=true;addCoins(s,o.reward);addXp(s,o.xp);s.stats.orders++;s.stats.earned=safe(s.stats.earned+o.reward);if(o.kind==='tutorial'&&s.tutorial>=3)s.tutorial=4;fillOrders(s);return okay('Заказ выполнен: +'+fmt(o.reward)+' монет и +'+fmt(o.xp)+' опыта',{completed:true});}return okay('Часть поставки принята. Остальные товары можно довезти позже.',{completed:false});}
+function newOrder(s,p){let o=s.orders.find(o=>o.id===p.id);if(!o||o.completed)return fail('Этот заказ уже выполнен');let wouldComplete=Object.entries(o.requirements).every(([k,n])=>(s.items[k]||0)+(o.delivered[k]||0)>=n);if(wouldComplete&&s.coins+o.reward>SAFE)return fail('Перед получением награды вложите часть монет: достигнут предел точности счёта');let transferred=0;for(let[k,n]of Object.entries(o.requirements)){let q=Math.min((s.items[k]||0),n-(o.delivered[k]||0));if(q>0){removeItem(s,k,q);o.delivered[k]=(o.delivered[k]||0)+q;transferred+=q;}}if(!transferred)return fail('Пока нечего передать. Нужные товары показаны в заказе.');let complete=Object.entries(o.requirements).every(([k,n])=>(o.delivered[k]||0)>=n);if(complete){o.completed=true;addCoins(s,o.reward);addXp(s,o.xp);s.stats.orders++;s.stats.earned=safe(s.stats.earned+o.reward);if(o.kind==='tutorial'&&s.tutorial>=3)s.tutorial=4;fillOrders(s);return okay('Заказ выполнен: +'+fmt(o.reward)+' монет и +'+fmt(o.xp)+' опыта',{completed:true});}return okay('Часть поставки принята. Остальные товары можно довезти позже.',{completed:false});}
 function cropPreview(s,b,cropId){let c=CROPS[cropId];if(!b||b.type!=='plot'||!c)return {available:false,reason:'Выберите грядку и культуру',cost:0,duration:0,yield:0};let variant=VARIETIES[b.settings.variety||'classic'];if(!variant)return {available:false,reason:'Неизвестный сорт',cost:0,duration:0,yield:0};let st=statsFor(s,b),cost=safe(Math.ceil(c.cost*st.batch*variant.costMultiplier)),freeSeed=false;if(s.coins<cost&&cropId==='wheat'&&s.coins<2){cost=0;freeSeed=true;variant=VARIETIES.classic;}let land=landOf(b.x,b.y),soil=landInfo(s,land.cx,land.cy).biome,extra=soil==='valley'&&['carrot','potato','tomato','pumpkin'].includes(cropId)?TUNING.valleyExtra:0;let amount=safe((c.yield+extra)*st.batch);let baseDuration=Math.max(ECONOMY.minCycle,c.time/st.speed*variant.timeMultiplier/(1+neighborBonus()));if(s.event.type==='pests')baseDuration*=TUNING.pestsTime;let watered=s.event.type==='rain',duration=baseDuration,harvestItem=cropId+(variant.id==='select'?'_select':'');let reason=!built(s,b)?'Строительство ещё идёт':b.plant?'На грядке уже есть растения':s.level<c.unlock?'Культура откроется на уровне '+c.unlock:s.level<variant.unlock?'Этот сорт ещё не открыт':s.coins<cost?'Не хватает монет для посадки':'';return {cost,duration,baseDuration,yield:amount,harvestItem,variety:variant.id,price:ITEMS[harvestItem].price,profitPerMinute:(ITEMS[harvestItem].price*amount-cost)/duration*60,available:!reason,reason,freeSeed,watered,xp:safe(c.xp*st.batch),soil};}
 function actionPlant(s,p){let b=buildingById(s,p.id),pre=cropPreview(s,b,p.crop);if(!pre.available)return fail(pre.reason);b.plant={crop:p.crop,harvestItem:pre.harvestItem,variety:pre.variety,start:s.time,end:s.time+pre.duration,duration:pre.baseDuration,watered:pre.watered,fertilized:false,yield:pre.yield,remaining:pre.yield,paidCoins:pre.cost,xp:pre.xp,xpAwarded:0};s.coins-=pre.cost;b.settings.crop=p.crop;if(!b.settings.autoInitialized){b.settings.auto=true;b.settings.autoInitialized=true;}if(s.tutorial===0&&p.crop==='wheat')s.tutorial=1;return okay(pre.freeSeed?'Пшеница посажена. Бесплатные семена помогли восстановить хозяйство.':CROPS[p.crop].name+': посажено',{id:b.id});}
 function startGrowth(s,c){c.watered=true;c.start=s.time;c.end=s.time+c.duration;if(s.tutorial===1)s.tutorial=2;}
 function actionFertilize(s,p){const b=buildingById(s,p.id),c=b?.plant;if(!c)return fail('Сначала посадите культуру');if(!c.watered)return fail('Сначала полейте грядку');if(c.end<=s.time)return fail('Урожай уже созрел');if(c.fertilized)return fail('Удобрение уже внесено');if(!(s.items.fertilizer>0))return fail('Купите удобрение у снабженца');const progress=Math.max(0,Math.min(.999999,(s.time-c.start)/(c.end-c.start))),left=(c.end-s.time)*(1-TUNING.fertilizerReduction);s.items.fertilizer--;c.fertilized=true;c.end=s.time+left;c.start=s.time-progress*left/(1-progress);return okay('Удобрение внесено: −'+Math.round(TUNING.fertilizerReduction*100)+'% оставшегося времени',{id:b.id});}
 function actionWater(s,p){let b=buildingById(s,p.id);if(!b?.plant)return fail('Сначала посадите культуру');let c=b.plant;if(c.watered)return fail('Растения уже политы');if((s.items.water||0)<TUNING.waterCost)return fail('Нужна вода. Наберите её бесплатно в колодце.');s.items.water-=TUNING.waterCost;startGrowth(s,c);if(s.tutorial===1)s.tutorial=2;return okay('Грядка полита — рост начался',{id:b.id});}
-function actionHarvest(s,p){let b=buildingById(s,p.id);if(!b?.plant)return fail('На грядке нет урожая');let c=b.plant;if(!c.watered)return fail('Сначала полейте грядку');if(c.end>s.time)return fail('Урожай ещё растёт');let qty=Math.min(c.remaining,freeSpace(s));if(qty<=0)return fail('Склад заполнен. Урожай останется на грядке.');let added=addItems(s,{[c.harvestItem||c.crop]:qty});if(!added)return fail('Освободите место на складе');c.remaining-=qty;s.stats.harvested=safe(s.stats.harvested+qty);let dueXp=Math.floor(c.xp*(c.yield-c.remaining)/c.yield);addXp(s,dueXp-c.xpAwarded);c.xpAwarded=dueXp;let name=ITEMS[c.harvestItem||c.crop].name;if(c.remaining===0)b.plant=null;if(s.tutorial===2)s.tutorial=3;return okay('Собрано: '+name+' ×'+qty+(b.plant?'. Остальное ждёт на грядке.':''),{qty,id:b.id});}
-function actionEnqueue(s,p){let b=buildingById(s,p.id);if(!b)return fail('Постройка не найдена');if(!built(s,b))return fail('Дождитесь окончания строительства');let st=statsFor(s,b);if(b.queue.length>=st.queue)return fail('Очередь заполнена');let terms=batchFor(s,b,p.recipe);if(!terms||!terms.available)return fail(terms?.reason||'Рецепт недоступен');if(s.coins<terms.coins)return fail('Не хватает монет на партию');for(let[k,n]of Object.entries(terms.inputs))if((s.items[k]||0)<n)return fail('Не хватает: '+ITEMS[k].name.toLowerCase()+' ('+n+')');if(sum(terms.outputs)>st.storage)return fail('Для этой партии улучшите внутреннее хранилище здания');for(let[k,n]of Object.entries(terms.inputs))s.items[k]-=n;s.coins-=terms.coins;let start=Math.max(s.time,b.queue.length?b.queue[b.queue.length-1].end:s.time);const batch={id:id(s,'q'),recipe:terms.recipe,name:terms.name,inputs:clone(terms.inputs),outputs:clone(terms.outputs),coins:terms.coins,duration:terms.duration,start,end:start+terms.duration,xp:terms.xp};b.queue.push(batch);b.settings.recipe=p.recipe;if(!b.settings.autoInitialized){b.settings.auto=true;b.settings.autoInitialized=true;}return okay('Партия оплачена и добавлена в очередь',{id:batch.id});}
+function ripePlot(s,b){return b?.type==='plot'&&b.plant?.watered&&b.plant.end<=s.time;}
+function takeHarvest(s,b,qty){
+  const c=b.plant,item=c.harvestItem||c.crop;
+  c.remaining-=qty;
+  s.stats.harvested=safe(s.stats.harvested+qty);
+  const xp=Math.floor(c.xp*(c.yield-c.remaining)/c.yield);
+  addXp(s,xp-c.xpAwarded);c.xpAwarded=xp;
+  if(c.remaining===0)b.plant=null;
+  if(s.tutorial===2)s.tutorial=3;
+  return item;
+}
+function actionHarvest(s,p){
+  const b=buildingById(s,p.id),c=b?.plant;
+  if(!c)return fail('На грядке нет урожая');
+  if(!c.watered)return fail('Сначала полейте грядку');
+  if(!ripePlot(s,b))return fail('Урожай ещё растёт');
+  const item=c.harvestItem||c.crop;
+  const qty=addItems(s,{[item]:c.remaining},true)?.[item]||0;
+  if(!qty)return fail('Склад заполнен. Урожай останется на грядке.');
+  takeHarvest(s,b,qty);
+  return okay('Собрано: '+ITEMS[item].name+' ×'+qty+(b.plant?'. Остальное ждёт на грядке.':''),{qty,id:b.id});
+}
+function actionEnqueue(s,p){let b=buildingById(s,p.id);if(!b)return fail('Постройка не найдена');if(!built(s,b))return fail('Дождитесь окончания строительства');let st=statsFor(s,b);if(b.queue.length>=st.queue)return fail('Очередь заполнена');let terms=batchFor(s,b,p.recipe);if(!terms||!terms.available)return fail(terms?.reason||'Рецепт недоступен');if(s.coins<terms.coins)return fail('Не хватает монет на партию');for(let[k,n]of Object.entries(terms.inputs))if((s.items[k]||0)<n)return fail('Не хватает: '+ITEMS[k].name.toLowerCase()+' ('+n+')');if(sum(terms.outputs)>st.storage)return fail('Для этой партии улучшите внутреннее хранилище здания');for(const [k,n] of Object.entries(terms.inputs))removeItem(s,k,n);s.coins-=terms.coins;let start=Math.max(s.time,b.queue.length?b.queue[b.queue.length-1].end:s.time);const batch={id:id(s,'q'),recipe:terms.recipe,name:terms.name,inputs:clone(terms.inputs),outputs:clone(terms.outputs),coins:terms.coins,duration:terms.duration,start,end:start+terms.duration,xp:terms.xp};b.queue.push(batch);b.settings.recipe=p.recipe;if(!b.settings.autoInitialized){b.settings.auto=true;b.settings.autoInitialized=true;}return okay('Партия оплачена и добавлена в очередь',{id:batch.id});}
 function collectOutput(s,b){let sent=addItems(s,b.output,true)||{};let count=sum(sent);for(let[k,n]of Object.entries(sent))b.output[k]-=n;for(let k of Object.keys(b.output))if(b.output[k]===0)delete b.output[k];return count;}
 function actionCollect(s,p){let b=buildingById(s,p.id);if(!b)return fail('Постройка не найдена');if(b.type==='market')return fail('Товары на рынке продаются по таймеру');if(!sum(b.output))return fail('Готовой продукции пока нет');let qty=collectOutput(s,b);if(!qty)return fail('Склад заполнен. Продукция сохранена в здании.');return okay('На склад перенесено '+qty+' ед.',{qty,id:b.id});}
 function demolishPreview(s,b){if(!b)return {available:false,reason:'Постройка не найдена'};if(b.type==='house')return {available:false,reason:'Дом фермера нельзя снести',refund:{coins:0,wood:0,stone:0},returns:{}};let refund={};for(let k of ['coins','wood','stone'])refund[k]=safe((b.investment[k]||0)*ECONOMY.demolitionRate);let returns=clone(b.output);for(let q of b.queue)for(let[k,n]of Object.entries(q.inputs))returns[k]=(returns[k]||0)+n;for(let k of ['wood','stone'])returns[k]=(returns[k]||0)+refund[k];let paidCoins=b.queue.reduce((n,q)=>n+(q.coins||0),0)+(b.plant?.paidCoins||0);refund.coins=safe(refund.coins+paidCoins);let futureCap=capacity(s)-(built(s,b)?statsFor(s,b).capacity:0);let reason=s.coins+refund.coins>SAFE?'Перед возвратом вложите часть монет: достигнут предел точности счёта':used(s)+sum(returns)>futureCap?'Освободите '+fmt(used(s)+sum(returns)-futureCap)+' мест на складе для содержимого и сырья очередей.':workerCapacity(s)-statsFor(s,b).workerPlaces<s.workers.length?'Сначала обеспечьте другое жильё для назначенных работников.':'';return {available:!reason,reason,refund,returns,futureCapacity:futureCap,queueCount:b.queue.length,workers:s.workers.filter(w=>w.buildingId===b.id).length,consequences:'Готовые товары и сырьё отменённых партий вернутся на склад. Посадки отменятся, оплаченные семена и расходы партий вернутся монетами. Работники сохранятся и перейдут к общим задачам.'};}
-function actionDemolish(s,p){let b=buildingById(s,p.id),pre=demolishPreview(s,b);if(!pre.available)return fail(pre.reason);s.buildings=s.buildings.filter(x=>x.id!==b.id);rerouteWorkers(s);for(let[k,n]of Object.entries(pre.returns))s.items[k]=(s.items[k]||0)+n;addCoins(s,pre.refund.coins);for(let w of s.workers)if(w.buildingId===b.id||w.target===b.id){w.buildingId=null;w.target=null;w.path=[];w.status='Ищет задачу';}return okay('Постройка убрана. Содержимое и возвращаемые ресурсы сохранены.');}
+function actionDemolish(s,p){let b=buildingById(s,p.id),pre=demolishPreview(s,b);if(!pre.available)return fail(pre.reason);s.buildings=s.buildings.filter(x=>x.id!==b.id);rerouteWorkers(s);addItems(s,pre.returns);addCoins(s,pre.refund.coins);for(let w of s.workers)if(w.buildingId===b.id||w.target===b.id){w.buildingId=null;w.target=null;w.path=[];w.status='Ищет задачу';}return okay('Постройка убрана. Содержимое и возвращаемые ресурсы сохранены.');}
 /* Помощники: цель резервируется за одним работником. Все расходующие ресурсы
    действия выполняются теми же атомарными командами, что и ручные кнопки. */
 const TASKS={all:'Любая работа',water:'Полив',harvest:'Сбор урожая',feed:'Кормление и запуск партий',transport:'Перенос продукции',market:'Доставка на рынок',weed:'Прополка'};
@@ -761,7 +822,7 @@ function findPath(s,w,b,blockedCache=navigationIndex(s).blocked,boost=1+dispatch
  }return null;
 }
 
-function taskFor(s,w,b){if(!built(s,b))return null;let task=w.task;if(b.type==='plot'){if(b.plant&&b.plant.watered&&b.plant.end<=s.time&&freeSpace(s)>0&&['all','harvest'].includes(task))return 'harvest';if(b.plant&&!b.plant.watered&&(s.items.water||0)>=TUNING.waterCost&&['all','water'].includes(task))return 'water';if(weedStage(b)&&w.weeding!==false&&['all','weed'].includes(task))return 'weed';if(!b.plant&&b.settings.auto&&['all','harvest'].includes(task)&&CROPS[b.settings.crop]&&s.coins>=CROPS[b.settings.crop].cost)return 'plant';}if(b.type!=='market'&&sum(b.output)>0&&freeSpace(s)>0&&['all','transport'].includes(task))return 'collect';if(BUILDINGS[b.type].recipes.length&&b.queue.length===0&&['all','feed'].includes(task)&&b.settings.auto){let r=batchFor(s,b,b.settings.recipe||BUILDINGS[b.type].recipes[0]);if(r?.available&&s.coins>=r.coins&&Object.entries(r.inputs).every(([k,n])=>(s.items[k]||0)>=n))return 'enqueue';}if(b.type==='well'&&(s.items.water||0)<TUNING.workerWaterThreshold&&freeSpace(s)>0&&['all','water'].includes(task))return 'well';return null;}
+function taskFor(s,w,b){if(!built(s,b))return null;let task=w.task;if(b.type==='plot'){if(ripePlot(s,b)&&freeSpace(s)>0&&['all','harvest'].includes(task))return 'harvest';if(b.plant&&!b.plant.watered&&(s.items.water||0)>=TUNING.waterCost&&['all','water'].includes(task))return 'water';if(weedStage(b)&&w.weeding!==false&&['all','weed'].includes(task))return 'weed';if(!b.plant&&b.settings.auto&&['all','harvest'].includes(task)&&CROPS[b.settings.crop]&&s.coins>=CROPS[b.settings.crop].cost)return 'plant';}if(b.type!=='market'&&sum(b.output)>0&&freeSpace(s)>0&&['all','transport'].includes(task))return 'collect';if(BUILDINGS[b.type].recipes.length&&b.queue.length===0&&['all','feed'].includes(task)&&b.settings.auto){let r=batchFor(s,b,b.settings.recipe||BUILDINGS[b.type].recipes[0]);if(r?.available&&s.coins>=r.coins&&Object.entries(r.inputs).every(([k,n])=>(s.items[k]||0)>=n))return 'enqueue';}if(b.type==='well'&&(s.items.water||0)<TUNING.workerWaterThreshold&&freeSpace(s)>0&&['all','water'].includes(task))return 'well';return null;}
 const workerVisuals=new WeakMap(),workerMovements=new WeakMap();
 function workerMovement(w){return workerMovements.get(w)||null;}
 function workerVisual(w){return workerVisuals.get(w)||null;}
@@ -771,16 +832,64 @@ function marketStats(b){return {capacity:safe(TUNING.marketCapacity*b.level),car
 function marketRoom(s,b){return Math.max(0,marketStats(b).capacity-sum(b.output)-s.workers.filter(w=>w.marketId===b.id).reduce((n,w)=>n+sum(w.cargo),0));}
 function marketJob(s,w){if(!['all','transport','market'].includes(w.task))return null;for(const market of s.buildings){if(market.type!=='market'||!built(s,market)||market.settings.auto===false||w.buildingId&&w.buildingId!==market.id)continue;const room=marketRoom(s,market);if(room<1)continue;for(const[item,keep]of Object.entries(market.settings.limits||{})){const available=(s.items[item]||0)-keep;if(available>0&&ITEMS[item]?.price>0)return {market,item,qty:Math.min(available,room,TUNING.marketCarry)};}}return null;}
 function marketTick(s){for(const b of s.buildings){if(b.type!=='market'||!built(s,b)||!sum(b.output))continue;const st=marketStats(b);if(!Number.isFinite(b.marketNextAt)){b.marketNextAt=s.time+st.interval;continue;}if(s.time<b.marketNextAt)continue;const cycles=1+Math.floor((s.time-b.marketNextAt)/st.interval);b.marketNextAt+=cycles*st.interval;let budget=Math.min(sum(b.output),st.batch*cycles);for(const[item,stored]of Object.entries(b.output)){if(budget<=0)break;const price=ITEMS[item].price*st.price*(s.event.type==='trader'?TUNING.traderSale:1);if(price<=0)continue;const n=Math.min(stored,budget,Math.floor((SAFE-s.coins)/price));if(n<=0)continue;const value=safe(n*price);b.output[item]-=n;if(!b.output[item])delete b.output[item];budget-=n;addCoins(s,value);s.stats.earned=safe(s.stats.earned+value);addXp(s,Math.floor(value/TUNING.saleXpDivisor));}}}
+function nearestHarvestWarehouse(s,w,boost){
+  const slots=warehouseSlots(s),reserved=new Map();
+  for(const other of s.workers){
+    if(other!==w&&other.harvestCargo&&other.target){
+      reserved.set(other.target,(reserved.get(other.target)||0)+sum(other.cargo));
+    }
+  }
+  let nearest=null;
+  const roads=roadMap(s);
+  for(const {b,room} of slots){
+    const available=room-(reserved.get(b.id)||0);
+    if(available<=0)continue;
+    const path=findPath(s,w,b,undefined,boost);
+    if(!path)continue;
+    let time=0;
+    for(let i=1;i<path.length;i++){
+      const from=path[i-1],to=path[i];
+      time+=terrainStep(roads,from.x,from.y,to.x,to.y,boost).time;
+    }
+    if(!nearest||time<nearest.time)nearest={b,path,room:available,time};
+  }
+  return nearest;
+}
 function workerTick(s,dt){
+ const batch=new Set(s.harvestBatch||[]);
+ if(batch.size){
+   const ripe=new Set(s.buildings.filter(b=>ripePlot(s,b)).map(b=>b.id));
+   for(const id of batch)if(!ripe.has(id))batch.delete(id);
+ }
+
  const boost=1+dispatchBonus(s),reserved=new Set(s.workers.filter(w=>w.target&&!['home','marketPickup','marketDeliver','marketReturn'].includes(w.action)).map(w=>w.target+':'+w.action));
- const route=(w,b,action)=>{const path=findPath(s,w,b,undefined,boost);if(!path)return false;w.target=b.id;w.action=action;w.path=path;w.atHome=false;w.status=action==='home'?'Идёт домой':action==='marketPickup'?'Идёт на склад за излишками':action==='marketDeliver'?'Несёт товары на рынок':action==='marketReturn'?'Возвращает товары на склад':'Идёт к объекту «'+BUILDINGS[b.type].name+'»';return true;};
+ const route=(w,b,action,path=findPath(s,w,b,undefined,boost))=>{
+  if(!path)return false;
+  w.target=b.id;w.action=action;w.path=path;w.atHome=false;
+  w.status=action==='home'?'Идёт домой':action==='marketPickup'?'Идёт на склад за излишками':action==='marketDeliver'?'Несёт товары на рынок':action==='marketReturn'
+   ?(w.harvestCargo?'Несёт урожай на склад':'Возвращает товары на склад'):'Идёт к объекту «'+BUILDINGS[b.type].name+'»';
+  return true;
+ };
+ const sendHarvest=(w,warehouse=nearestHarvestWarehouse(s,w,boost))=>{
+  if(!warehouse){w.status='Ждёт места на доступном складе · груз у помощника';return false;}
+  return route(w,warehouse.b,'marketReturn',warehouse.path);
+ };
  const clear=w=>{reserved.delete(w.target+':'+w.action);w.target=null;w.action=null;w.path=[];};
  const schedule=w=>{
-  if(sum(w.cargo)){let market=buildingById(s,w.marketId);if(market?.type==='market'&&built(s,market)&&sum(market.output)<marketStats(market).capacity&&route(w,market,'marketDeliver'))return true;if(market?.type==='market'&&built(s,market)){w.status='Ждёт места на рынке';return false;}const warehouses=s.buildings.filter(b=>b.type==='warehouse'&&built(s,b)&&freeSpace(s)>0);for(const b of warehouses)if(route(w,b,'marketReturn'))return true;w.status='Нет прохода для доставки груза';return false;}
+  if(sum(w.cargo)){if(w.harvestCargo)return sendHarvest(w);let market=buildingById(s,w.marketId);if(market?.type==='market'&&built(s,market)&&sum(market.output)<marketStats(market).capacity&&route(w,market,'marketDeliver'))return true;if(market?.type==='market'&&built(s,market)){w.status='Ждёт места на рынке';return false;}const warehouses=s.buildings.filter(b=>b.type==='warehouse'&&built(s,b)&&freeSpace(s)>0);for(const b of warehouses)if(route(w,b,'marketReturn'))return true;w.status='Нет прохода для доставки груза';return false;}
+  let harvestRoom;
+  const canStoreHarvest=()=>harvestRoom??=(freeSpace(s)>0&&warehouseSlots(s).some(slot=>slot.room>0));
+  if(batch.size&&canStoreHarvest()){
+    const ripe=s.buildings.filter(b=>batch.has(b.id)&&ripePlot(s,b)&&!reserved.has(b.id+':harvest'));
+    ripe.sort((a,b)=>Math.abs(a.x-w.x)+Math.abs(a.y-w.y)-Math.abs(b.x-w.x)-Math.abs(b.y-w.y));
+    for(const b of ripe){
+      if(route(w,b,'harvest')){reserved.add(b.id+':harvest');return true;}
+    }
+  }
   // Empty a congested warehouse before harvesting more produce.
   const job=marketJob(s,w);if(job){const warehouses=s.buildings.filter(b=>b.type==='warehouse'&&built(s,b));for(const warehouse of warehouses)if(route(w,warehouse,'marketPickup')){w.marketId=job.market.id;return true;}}
   const rank={water:0,harvest:1,well:2,weed:3},candidates=s.buildings.filter(b=>!w.buildingId||b.id===w.buildingId||b.type==='well').map(b=>({b,action:taskFor(s,w,b)})).filter(q=>q.action);candidates.sort((a,b)=>(rank[a.action]??4)-(rank[b.action]??4)||(b.b.settings.priority||1)-(a.b.settings.priority||1)||(Math.abs(a.b.x-w.x)+Math.abs(a.b.y-w.y))-(Math.abs(b.b.x-w.x)+Math.abs(b.b.y-w.y)));
-  for(const {b,action}of candidates){if(reserved.has(b.id+':'+action))continue;if(route(w,b,action)){reserved.add(b.id+':'+action);return true;}}
+  for(const {b,action}of candidates){if(reserved.has(b.id+':'+action)||(action==='harvest'&&!canStoreHarvest()))continue;if(route(w,b,action)){reserved.add(b.id+':'+action);return true;}}
   return false;
  };
  for(const w of [...s.workers].sort((a,b)=>(b.priority||1)-(a.priority||1))){
@@ -791,7 +900,12 @@ function workerTick(s,dt){
   if(w.unpaid){if(w.action!=='home')clear(w);if(!w.atHome&&!w.target){const home=s.buildings.filter(b=>['house','cottage'].includes(b.type)&&built(s,b)).sort((a,b)=>Math.hypot(a.x-w.x,a.y-w.y)-Math.hypot(b.x-w.x,b.y-w.y));home.some(b=>route(w,b,'home'));}w.status='Нет монет на зарплату · ожидает';if(!w.target)continue;}
   if(w.target){const b=buildingById(s,w.target);if(!b){clear(w);w.waitUntil=s.time;}
    else if(w.action==='home'){if(!w.unpaid)schedule(w);}
-   else if(!['marketPickup','marketDeliver','marketReturn'].includes(w.action)&&taskFor(s,w,b)!==w.action){clear(w);w.waitUntil=s.time;}
+   else if(!['marketPickup','marketDeliver','marketReturn'].includes(w.action)){
+     const valid=w.action==='harvest'
+       ?ripePlot(s,b)&&(batch.has(b.id)||taskFor(s,w,b)==='harvest')
+       :taskFor(s,w,b)===w.action;
+     if(!valid){clear(w);w.waitUntil=s.time;}
+   }
   }
   if(w.target){const b=buildingById(s,w.target);const baseSpeed=TUNING.workerSpeed+Math.min(TUNING.workerMaxBonus,(s.tech||0)*TUNING.workerTechSpeed);
    walkRoadAware(w,dt,roadMap(s),movement,baseSpeed,boost);
@@ -799,20 +913,53 @@ function workerTick(s,dt){
    if(w.path.length)continue;
    const action=w.action;let result={ok:false,msg:'Работа остановлена'};
    if(action==='home'){w.atHome=true;w.status=w.unpaid?'Дома · нет монет на зарплату':sum(w.cargo)?'Дома · ожидает доставки груза':'Дома · ждёт работу';clear(w);w.waitUntil=s.time+Math.max(TUNING.workerIdleSeconds,ECONOMY.automationInterval);continue;}
+   if(action==='harvest'){
+    const warehouse=nearestHarvestWarehouse(s,w,boost);
+    if(warehouse&&ripePlot(s,b)){
+      const qty=Math.min(warehouse.room,b.plant.remaining);
+      const item=takeHarvest(s,b,qty);
+      w.cargo={[item]:qty};w.marketId=null;w.harvestCargo=true;
+      if(!b.plant)batch.delete(b.id);
+      workerVisuals.set(w,{action,start:s.time,until:s.time+TUNING.workerWorkSeconds/boost,x:b.x+b.w/2,y:b.y+b.h/2});
+      clear(w);sendHarvest(w,warehouse);continue;
+    }
+    clear(w);w.status='Нет доступного склада · урожай на грядке';
+    w.waitUntil=s.time+TUNING.workerIdleSeconds;continue;
+   }
    if(action==='marketPickup'){
-    const market=buildingById(s,w.marketId),job=marketJob(s,w);if(market&&job?.market.id===market.id){const n=Math.min(job.qty,s.items[job.item]||0);if(n>0){s.items[job.item]-=n;w.cargo={[job.item]:n};clear(w);if(!route(w,market,'marketDeliver'))w.status='Нет прохода к рынку';continue;}}
+    const market=buildingById(s,w.marketId),job=marketJob(s,w);if(market&&job?.market.id===market.id){const n=Math.min(job.qty,s.items[job.item]||0);if(n>0){removeItem(s,job.item,n);w.cargo={[job.item]:n};clear(w);if(!route(w,market,'marketDeliver'))w.status='Нет прохода к рынку';continue;}}
    }else if(action==='marketDeliver'){
     if(b.type==='market'&&built(s,b)){let space=Math.max(0,marketStats(b).capacity-sum(b.output));for(const[item,n]of Object.entries(w.cargo||{})){const qty=Math.min(n,space);b.output[item]=(b.output[item]||0)+qty;w.cargo[item]-=qty;space-=qty;}if(!sum(w.cargo)){w.cargo={};w.marketId=null;if(!Number.isFinite(b.marketNextAt)||b.marketNextAt<=s.time)b.marketNextAt=s.time+marketStats(b).interval;result={ok:true};}else w.status='Рынок заполнен · груз сохранён';}
    }else if(action==='marketReturn'){
-    for(const[item,n]of Object.entries(w.cargo||{})){const qty=Math.min(n,freeSpace(s));if(qty>0){addItems(s,{[item]:qty});w.cargo[item]-=qty;}}if(!sum(w.cargo)){w.cargo={};w.marketId=null;result={ok:true};}else w.status='Склад заполнен · груз сохранён';
+    if(w.harvestCargo){
+      let room=warehouseFreeSpace(s,b);
+      for(const [item,n] of Object.entries(w.cargo||{})){
+        const qty=addItems(s,{[item]:Math.min(n,room)},true)?.[item]||0;
+        if(qty){
+          const stored=b.harvestStored||=(Object.create(null));
+          stored[item]=(stored[item]||0)+qty;
+          w.cargo[item]-=qty;room-=qty;
+        }
+      }
+    }else{
+      for(const [item,n] of Object.entries(w.cargo||{})){
+        const qty=addItems(s,{[item]:n},true)?.[item]||0;
+        w.cargo[item]-=qty;
+      }
+    }
+    if(!sum(w.cargo)){
+      w.cargo={};w.marketId=null;delete w.harvestCargo;result={ok:true};
+    }else w.status='Склад заполнен · груз сохранён';
    }else{const p={id:b.id};if(action==='plant')p.crop=b.settings.crop||'wheat';if(action==='enqueue')p.recipe=b.settings.recipe||BUILDINGS[b.type].recipes[0];result=act(s,action,p);}
    if(result.ok){workerVisuals.set(w,{action,start:s.time,until:s.time+TUNING.workerWorkSeconds/boost,x:b.x+b.w/2,y:b.y+b.h/2});w.completed=(w.completed||0)+1;w.status='Задача выполнена';}clear(w);w.waitUntil=s.time+TUNING.workerWorkSeconds/boost;continue;
   }
   if((w.waitUntil||0)>s.time)continue;
   if(schedule(w))continue;
+  if(w.harvestCargo&&sum(w.cargo)){w.waitUntil=s.time+TUNING.workerIdleSeconds;continue;}
   if(!w.atHome){const homes=s.buildings.filter(b=>['house','cottage'].includes(b.type)&&built(s,b)).sort((a,b)=>Math.hypot(a.x-w.x,a.y-w.y)-Math.hypot(b.x-w.x,b.y-w.y));if(homes.some(b=>route(w,b,'home')))continue;w.status='Нет прохода домой';}else w.status=sum(w.cargo)?'Дома · ожидает доставки груза':'Дома · ждёт работу';
   w.waitUntil=s.time+Math.max(TUNING.workerIdleSeconds,ECONOMY.automationInterval);
  }
+ if(batch.size)s.harvestBatch=[...batch];else delete s.harvestBatch;
 }
 
 function processProduction(s){for(let b of s.buildings){if(b.upgrade&&b.upgrade.end<=s.time){b.level=b.upgrade.toLevel;b.upgrade=null;s.stats.upgrades++;if(roadLevel(b))rerouteWorkers(s);}if(!b.queue.length||b.queue[0].end>s.time||!built(s,b))continue;let room=statsFor(s,b).storage-sum(b.output);while(b.queue.length&&b.queue[0].end<=s.time){let q=b.queue[0],total=sum(q.outputs);if(total>room)break;for(let[k,n]of Object.entries(q.outputs))b.output[k]=(b.output[k]||0)+n;room-=total;b.queue.shift();addXp(s,q.xp||0);s.stats.produced=safe(s.stats.produced+total);}}}
@@ -826,7 +973,16 @@ case'feedDog':{if(b?.type!=='kennel'||!built(s,b))return fail('Сначала п
 case'renameFarm':{const name=normalizeFarmName(p.name);if(!validFarmName(name))return fail('Введите название от 1 до '+FARM_NAME_LIMIT+' символов');s.farmName=name;return okay('Название фермы изменено');}
 case'weed':return actionWeed(s,p);case'plant':return actionPlant(s,p);case'water':return actionWater(s,p);case'fertilize':return actionFertilize(s,p);case'harvest':return actionHarvest(s,p);case'enqueue':return actionEnqueue(s,p);case'collect':return actionCollect(s,p);case'demolish':return actionDemolish(s,p);case'order':return newOrder(s,p);
 case'waterAll':{let n=0;for(let b of s.buildings)if(b.type==='plot'&&actionWater(s,{id:b.id}).ok)n++;return n?okay('Полито грядок: '+n):fail('Нет грядок для полива или закончилась вода');}
-case'harvestAll':{let n=0;for(let b of s.buildings)if(b.type==='plot'&&actionHarvest(s,{id:b.id}).ok)n++;return n?okay('Собран урожай с '+n+' грядок'):fail('Нет созревшего урожая или склад заполнен');}
+case'harvestAll':{
+  if(!s.workers.length)return fail('Для общего сбора нужен помощник');
+  const ready=s.buildings.filter(b=>ripePlot(s,b)).map(b=>b.id);
+  if(!ready.length)return fail('Нет созревшего урожая');
+  s.harvestBatch=ready;
+  for(const w of s.workers){
+    if(!w.target&&!(workerVisuals.get(w)?.until>s.time))w.waitUntil=s.time;
+  }
+  return okay('Помощники соберут урожай с '+ready.length+' грядок после текущих дел');
+}
 case'well':case'refill':{if(action==='well'&&(!b||b.type!=='well'||!built(s,b)))return fail('Выберите готовый колодец');if(!s.buildings.some(b=>b.type==='well'&&built(s,b)))return fail('Нужен колодец');let qty=Math.min(TUNING.wellAmount,freeSpace(s));if(!qty)return fail('Освободите место на складе для воды');addItems(s,{water:qty});return okay('Набрано '+qty+' воды бесплатно',{qty});}
 case'build':{let d=BUILDINGS[p.type];if(!d)return fail('Постройка не найдена');if(s.level<d.unlock)return fail('Откроется на уровне '+d.unlock);if(d.unique&&s.buildings.some(b=>b.type===p.type))return fail('Эта постройка уже есть на ферме');let place=checkPlace(s,p);if(!place.ok)return fail(place.reason);const price=buildPreview(s,p.type);if(!price.available)return fail(price.reason);pay(s,price.cost);let nb=makeBuilding(s,p.type,p.x,p.y,p.rotation||0,true);nb.investment=clone(price.cost);rerouteWorkers(s);s.stats.built++;return okay(d.name+': '+(nb.constructionUntil?'строительство началось':'построено'),{id:nb.id});}
 case'upgrade':{const road=roadLevel(b),fence=fenceLevel(b);if(road||fence){
@@ -843,9 +999,9 @@ case'move':{if(!b)return fail('Постройка не найдена');let plac
 case'land':{let {cx,cy}=p;if(!Number.isSafeInteger(cx)||!Number.isSafeInteger(cy))return fail('Выберите соседний участок');if(!inWorld(cx,cy))return fail('Это край карты. Все '+WORLD_SECTORS+' участков ограничены координатами от −'+WORLD_RADIUS+' до +'+WORLD_RADIUS+'.');let key=landKey(cx,cy);if(s.lands[key])return fail('Эта земля уже ваша');if(![[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>s.lands[landKey(cx+dx,cy+dy)]))return fail('Можно покупать только соседнюю землю');let info=landInfo(s,cx,cy);if(!canPay(s,info.cost))return fail(costReason(s,info.cost));pay(s,info.cost);s.lands[key]={cx,cy,cleared:[],forageAt:s.time};addXp(s,TUNING.landXp+Math.floor(info.cost.coins/TUNING.landGoldXpDivisor));return okay('Куплен участок «'+info.name+'». За ним доступны новые земли.',{key});}
 case'forage':{let cx=Number.isInteger(p.cx)?p.cx:0,cy=Number.isInteger(p.cy)?p.cy:0,l=s.lands[landKey(cx,cy)];if(!l)return fail('Сначала купите этот участок');if(l.forageAt>s.time)return fail('Новые материалы появятся через '+Math.ceil(l.forageAt-s.time)+' с');if(freeSpace(s)<1)return fail('Склад заполнен');let given=addItems(s,{wood:TUNING.forageWood,stone:TUNING.forageStone,wheat:TUNING.forageWheat},true);if(!sum(given))return fail('Освободите склад');l.forageAt=s.time+TUNING.forageSeconds;addXp(s,TUNING.forageXp);return okay('Собраны дикорастущие растения и материалы',{items:given});}
 case'clear':{let l=s.lands[landKey(p.cx,p.cy)];if(!l)return fail('Это чужая земля');let n=landInfo(s,p.cx,p.cy).objects.find(o=>o.id===p.natureId);if(!n)return fail('Этот объект уже убран');if(n.type==='pond')return fail('Природный водоём сохраняется; стройте на берегу');let goods=n.type==='tree'?{wood:TUNING.clearWood}:n.type==='rock'?{stone:TUNING.clearStone}:{wheat:TUNING.clearWheat};let price=n.type==='flowers'?0:n.type==='tree'?TUNING.clearTreeGold:TUNING.clearRockGold;if(s.coins<price)return fail('Для расчистки нужно '+price+' монет. Бесплатные материалы можно собрать рядом.');if(sum(goods)>freeSpace(s))return fail('Освободите '+sum(goods)+' мест для материалов');s.coins-=price;addItems(s,goods);l.cleared.push(n.id);rerouteWorkers(s);addXp(s,TUNING.clearXp);return okay('Место расчищено; материалы отправлены на склад',{items:goods});}
-case'sell':{let it=ITEMS[p.item],qty=Number(p.qty);if(!it||!Number.isSafeInteger(qty)||qty<=0)return fail('Выберите товар и количество');if((s.items[p.item]||0)<qty)return fail('На складе меньше товара');let multiplier=s.event.type==='trader'?TUNING.traderSale:1,value=safe(qty*it.price*multiplier);if(s.coins+value>SAFE)return fail('Сначала вложите часть монет: достигнут предел точности счёта');s.items[p.item]-=qty;addCoins(s,value);s.stats.earned=safe(s.stats.earned+value);addXp(s,Math.max(0,Math.floor(value/TUNING.saleXpDivisor)));return okay('Продано: '+it.name+' ×'+fmt(qty)+' за '+fmt(value)+' монет',{coins:value});}
+case'sell':{let it=ITEMS[p.item],qty=Number(p.qty);if(!it||!Number.isSafeInteger(qty)||qty<=0)return fail('Выберите товар и количество');if((s.items[p.item]||0)<qty)return fail('На складе меньше товара');let multiplier=s.event.type==='trader'?TUNING.traderSale:1,value=safe(qty*it.price*multiplier);if(s.coins+value>SAFE)return fail('Сначала вложите часть монет: достигнут предел точности счёта');removeItem(s,p.item,qty);addCoins(s,value);s.stats.earned=safe(s.stats.earned+value);addXp(s,Math.max(0,Math.floor(value/TUNING.saleXpDivisor)));return okay('Продано: '+it.name+' ×'+fmt(qty)+' за '+fmt(value)+' монет',{coins:value});}
 case'buy':{let it=ITEMS[p.item],qty=Number(p.qty);if(!it||it.buyPrice===undefined||!Number.isSafeInteger(qty)||qty<=0)return fail('Этот ресурс не продаётся у снабженца');if(p.item==='water'&&!s.buildings.some(b=>b.type==='well'&&built(s,b)))return fail('Для воды нужен колодец');let price=safe(qty*it.buyPrice);if(s.coins<price)return fail('Не хватает монет');if(qty>freeSpace(s))return fail('Недостаточно места на складе');s.coins-=price;addItems(s,{[p.item]:qty});return okay(it.name+': получено '+fmt(qty));}
-case'normalize':{let it=ITEMS[p.item],qty=Number(p.qty);if(!it?.base||!Number.isSafeInteger(qty)||qty<=0)return fail('Выберите отборный урожай и целое количество');if((s.items[p.item]||0)<qty)return fail('Не хватает товара');if((s.items[it.base]||0)+qty>SAFE)return fail('Достигнут предел количества товара');s.items[p.item]-=qty;s.items[it.base]=(s.items[it.base]||0)+qty;return okay('Переведено в обычное качество 1:1: '+ITEMS[it.base].name+' ×'+fmt(qty));}
+case'normalize':{let it=ITEMS[p.item],qty=Number(p.qty);if(!it?.base||!Number.isSafeInteger(qty)||qty<=0)return fail('Выберите отборный урожай и целое количество');if((s.items[p.item]||0)<qty)return fail('Не хватает товара');if((s.items[it.base]||0)+qty>SAFE)return fail('Достигнут предел количества товара');removeItem(s,p.item,qty);if(cropItem(it.base))trimHarvestStock(s,it.base);s.items[it.base]=(s.items[it.base]||0)+qty;return okay('Переведено в обычное качество 1:1: '+ITEMS[it.base].name+' ×'+fmt(qty));}
 case'skipOrder':{let o=s.orders.find(o=>o.id===p.id);if(!o||o.completed)return fail('Заказ уже закрыт');if(sum(o.delivered)>0)return fail('В заказ уже переданы товары. Завершите поставку.');if(o.kind==='tutorial'&&s.tutorial<4)return fail('Первый учебный заказ нельзя заменить');s.orders=s.orders.filter(x=>x.id!==o.id);fillOrders(s);return okay('Доступен новый заказ');}
 case'hire':{if(s.level<TUNING.hireUnlock)return fail('Помощники открываются на уровне '+TUNING.hireUnlock);if(s.workers.length>=workerCapacity(s))return fail('Нужно больше жилья: улучшите дом или постройте домик работников');let cost=safe(TUNING.hireCost*power(s.workers.length+1,TUNING.hireExponent));if(s.coins<cost)return fail('Для найма нужно '+fmt(cost)+' монет');let names=['Маша','Иван','Соня','Фёдор','Анна','Мирон','Полина','Лука'];let home=s.buildings.find(b=>b.type==='house'),entrance=nearestEntrance(s,home)||{x:2,y:4};s.coins-=cost;let worker={id:id(s,'w'),name:names[s.workers.length%names.length]+(s.workers.length>=names.length?' '+(1+Math.floor(s.workers.length/names.length)):''),task:'all',buildingId:null,priority:1,x:entrance.x,y:entrance.y,target:null,action:null,path:[],status:'Ищет задачу',waitUntil:s.time,completed:0,weeding:true,paidUntil:s.time+FARM_RULES.wageSeconds,unpaid:false};s.workers.push(worker);return okay('Помощник '+worker.name+' нанят. Зарплата: 1 монета за игровую минуту.',{id:worker.id});}
 case'fire':{const w=s.workers.find(w=>w.id===p.id);if(!w)return fail('Работник не найден');if(sum(w.cargo))return fail('Сначала дождитесь доставки груза помощником');s.workers=s.workers.filter(a=>a.id!==w.id);return okay('Помощник отпущен. Зарплата больше не начисляется');}
@@ -866,20 +1022,24 @@ quantities(s.items,'Склад');obj(s.lands,'Земли');let keys=Object.keys(
 arr(s.buildings,'Постройки',200000);arr(s.workers,'Работники',10000);arr(s.orders,'Заказы',100);obj(s.stats,'Статистика');for(let k of ['harvested','produced','orders','earned','built','upgrades','research'])num(s.stats[k],k);obj(s.event,'Событие');if(!['calm','rain','trader','supply','pests'].includes(s.event.type))bad('Неизвестное событие');num(s.event.until,'Срок события');num(s.event.index,'Номер события',0,SAFE,true);
 let allIds=new Set(),bIds=new Set(),maxId=0;function uniqueId(v,prefix){str(v,'Идентификатор',50);if(!new RegExp('^'+prefix+'[1-9][0-9]*$').test(v)||allIds.has(v))bad('Повтор или неверный идентификатор');allIds.add(v);maxId=Math.max(maxId,Number(v.slice(1)));}
 let occupied=new Map();let natureCache=new Map();function natural(cx,cy){let key=landKey(cx,cy);if(!natureCache.has(key))natureCache.set(key,landInfo(s,cx,cy).objects);return natureCache.get(key);}
-for(let b of s.buildings){obj(b,'Постройка');uniqueId(b.id,'b');bIds.add(b.id);let d=BUILDINGS[b.type];if(!d)bad('Неизвестная постройка');num(b.x,'X постройки',-SAFE/32,SAFE/32,true);num(b.y,'Y постройки',-SAFE/32,SAFE/32,true);num(b.level,'Уровень постройки',1,SAFE,true);num(b.rotation,'Поворот',0,3,true);let dim=dimensions(b.type,b.rotation);if(b.w!==dim.w||b.h!==dim.h)bad('Неверные границы постройки');for(let c of occupiedChunks(b)){if(!s.lands[landKey(c.cx,c.cy)])bad('Постройка на чужой земле');for(let o of natural(c.cx,c.cy))if(overlap(b,o))bad('Постройка пересекает природный объект');}for(let y=b.y;y<b.y+b.h;y++)for(let x=b.x;x<b.x+b.w;x++){let key=x+','+y;if(!occupyBuildingCell(occupied,key,b.type))bad('Постройки пересекаются');}if(b.weedStage!==undefined)num(b.weedStage,'Сорняки',0,2,true);if(b.weedAt!==undefined)num(b.weedAt,'Таймер сорняков');num(b.constructionUntil,'Строительство');if(b.marketNextAt!==undefined)num(b.marketNextAt,'Таймер рынка');if(b.dogFedUntil!==undefined)num(b.dogFedUntil,'Кормление собаки');if(b.settings?.limits!==undefined)quantities(b.settings.limits,'Запасы рынка');cost(b.investment,'Вложения');quantities(b.output,'Внутренний склад');obj(b.settings,'Настройки постройки');bool(b.settings.auto,'Автоповтор');if(b.settings.autoInitialized!==undefined)bool(b.settings.autoInitialized,'Первый запуск');if(!CROPS[b.settings.crop])bad('Неизвестная выбранная культура');if(!VARIETIES[b.settings.variety])bad('Неизвестный сорт');num(b.settings.priority,'Приоритет',1,3,true);if(!['balanced','volume','speed','thrift'].includes(b.settings.specialization))bad('Неверная специализация');num(b.settings.specializationGeneration,'Поколение специализации',0,SAFE,true);str(b.settings.recipe,'Выбранный рецепт',100);if(b.settings.recipe&&(!RECIPES[b.settings.recipe]||RECIPES[b.settings.recipe].building!==b.type)&&!(b.type==='complex'&&generationId(b.settings.recipe)))bad('Рецепт не принадлежит зданию');
+for(let b of s.buildings){obj(b,'Постройка');uniqueId(b.id,'b');bIds.add(b.id);let d=BUILDINGS[b.type];if(!d)bad('Неизвестная постройка');num(b.x,'X постройки',-SAFE/32,SAFE/32,true);num(b.y,'Y постройки',-SAFE/32,SAFE/32,true);num(b.level,'Уровень постройки',1,SAFE,true);num(b.rotation,'Поворот',0,3,true);let dim=dimensions(b.type,b.rotation);if(b.w!==dim.w||b.h!==dim.h)bad('Неверные границы постройки');for(let c of occupiedChunks(b)){if(!s.lands[landKey(c.cx,c.cy)])bad('Постройка на чужой земле');for(let o of natural(c.cx,c.cy))if(overlap(b,o))bad('Постройка пересекает природный объект');}for(let y=b.y;y<b.y+b.h;y++)for(let x=b.x;x<b.x+b.w;x++){let key=x+','+y;if(!occupyBuildingCell(occupied,key,b.type))bad('Постройки пересекаются');}if(b.weedStage!==undefined)num(b.weedStage,'Сорняки',0,2,true);if(b.weedAt!==undefined)num(b.weedAt,'Таймер сорняков');num(b.constructionUntil,'Строительство');if(b.harvestStored!==undefined){if(b.type!=='warehouse')bad('Учёт урожая вне склада');quantities(b.harvestStored,'Запасы урожая');}if(b.marketNextAt!==undefined)num(b.marketNextAt,'Таймер рынка');if(b.dogFedUntil!==undefined)num(b.dogFedUntil,'Кормление собаки');if(b.settings?.limits!==undefined)quantities(b.settings.limits,'Запасы рынка');cost(b.investment,'Вложения');quantities(b.output,'Внутренний склад');obj(b.settings,'Настройки постройки');bool(b.settings.auto,'Автоповтор');if(b.settings.autoInitialized!==undefined)bool(b.settings.autoInitialized,'Первый запуск');if(!CROPS[b.settings.crop])bad('Неизвестная выбранная культура');if(!VARIETIES[b.settings.variety])bad('Неизвестный сорт');num(b.settings.priority,'Приоритет',1,3,true);if(!['balanced','volume','speed','thrift'].includes(b.settings.specialization))bad('Неверная специализация');num(b.settings.specializationGeneration,'Поколение специализации',0,SAFE,true);str(b.settings.recipe,'Выбранный рецепт',100);if(b.settings.recipe&&(!RECIPES[b.settings.recipe]||RECIPES[b.settings.recipe].building!==b.type)&&!(b.type==='complex'&&generationId(b.settings.recipe)))bad('Рецепт не принадлежит зданию');
 if(b.upgrade!==null){obj(b.upgrade,'Модернизация');num(b.upgrade.end,'Время модернизации');if(b.upgrade.toLevel!==b.level+1)bad('Некорректный следующий уровень');cost(b.upgrade.cost,'Стоимость модернизации');}
 arr(b.queue,'Очередь',256);let previousEnd=0;for(let q of b.queue){obj(q,'Партия');uniqueId(q.id,'q');str(q.recipe,'Рецепт партии',100);if((!RECIPES[q.recipe]||RECIPES[q.recipe].building!==b.type)&&!(b.type==='complex'&&generationId(q.recipe)))bad('Неизвестный рецепт оплаченной партии');str(q.name,'Название партии',200);quantities(q.inputs,'Сырьё партии');quantities(q.outputs,'Результат партии');if(sum(q.outputs)<1)bad('Партия без результата');num(q.coins,'Монеты партии');num(q.duration,'Длительность партии',.01,SAFE);num(q.start,'Начало партии');num(q.end,'Конец партии');if(Math.abs(q.end-q.start-q.duration)>Math.max(.001,q.duration*1e-8)||q.start+1e-7<previousEnd)bad('Нарушены таймеры очереди');previousEnd=q.end;num(q.xp,'Опыт партии');}
 if(b.plant!==null){if(b.type!=='plot')bad('Посев вне грядки');let p=b.plant;obj(p,'Посев');if(!CROPS[p.crop])bad('Неизвестная культура');if(!VARIETIES[p.variety]||p.harvestItem!==p.crop+(p.variety==='select'?'_select':''))bad('Некорректное качество урожая');num(p.start,'Начало посева');num(p.end,'Созревание');num(p.duration,'Рост',.01,SAFE);if(p.end<p.start)bad('Повреждён таймер посева');bool(p.watered,'Полив');if(p.fertilized!==undefined)bool(p.fertilized,'Удобрение');num(p.yield,'Размер урожая',1,SAFE,true);num(p.remaining,'Остаток урожая',1,p.yield,true);num(p.paidCoins,'Семена');num(p.xp,'Опыт урожая');num(p.xpAwarded,'Выданный опыт',0,p.xp);}
 }
 if(s.buildings.filter(b=>b.type==='house').length!==1)bad('Должен быть один дом фермера');if(used(s)>capacity(s))bad('Содержимое склада превышает его вместимость');
-for(let w of s.workers){obj(w,'Работник');uniqueId(w.id,'w');str(w.name,'Имя',100);if(!TASKS[w.task])bad('Задача работника неизвестна');if(w.buildingId!==null&&!bIds.has(w.buildingId))bad('Работник назначен на отсутствующий объект');if(w.target!==null&&!bIds.has(w.target))bad('Цель работника отсутствует');num(w.priority,'Приоритет работника',1,3,true);num(w.x,'X работника',-SAFE,SAFE);num(w.y,'Y работника',-SAFE,SAFE);arr(w.path,'Путь',8192);for(let p of w.path){obj(p,'Точка пути');num(p.x,'X пути',-SAFE/32,SAFE/32,true);num(p.y,'Y пути',-SAFE/32,SAFE/32,true);}if(w.cargo!==undefined)quantities(w.cargo,'Груз помощника');if(w.marketId!==undefined&&w.marketId!==null)str(w.marketId,'Адрес доставки',50);if(w.atHome!==undefined)bool(w.atHome,'Дома');if(w.action!==null&&!['home','marketPickup','marketDeliver','marketReturn','plant','water','harvest','enqueue','collect','well','weed'].includes(w.action))bad('Действие работника неизвестно');if(w.weeding!==undefined)bool(w.weeding,'Прополка');if(w.unpaid!==undefined)bool(w.unpaid,'Зарплата');if(w.paidUntil!==undefined)num(w.paidUntil,'Оплаченная работа');str(w.status,'Занятие',200);num(w.waitUntil,'Ожидание');num(w.completed,'Работа',0,SAFE,true);}
+for(let w of s.workers){obj(w,'Работник');uniqueId(w.id,'w');str(w.name,'Имя',100);if(!TASKS[w.task])bad('Задача работника неизвестна');if(w.buildingId!==null&&!bIds.has(w.buildingId))bad('Работник назначен на отсутствующий объект');if(w.target!==null&&!bIds.has(w.target))bad('Цель работника отсутствует');num(w.priority,'Приоритет работника',1,3,true);num(w.x,'X работника',-SAFE,SAFE);num(w.y,'Y работника',-SAFE,SAFE);arr(w.path,'Путь',8192);for(let p of w.path){obj(p,'Точка пути');num(p.x,'X пути',-SAFE/32,SAFE/32,true);num(p.y,'Y пути',-SAFE/32,SAFE/32,true);}if(w.cargo!==undefined)quantities(w.cargo,'Груз помощника');if(w.harvestCargo!==undefined)bool(w.harvestCargo,'Перенос урожая');if(w.marketId!==undefined&&w.marketId!==null)str(w.marketId,'Адрес доставки',50);if(w.atHome!==undefined)bool(w.atHome,'Дома');if(w.action!==null&&!['home','marketPickup','marketDeliver','marketReturn','plant','water','harvest','enqueue','collect','well','weed'].includes(w.action))bad('Действие работника неизвестно');if(w.weeding!==undefined)bool(w.weeding,'Прополка');if(w.unpaid!==undefined)bool(w.unpaid,'Зарплата');if(w.paidUntil!==undefined)num(w.paidUntil,'Оплаченная работа');str(w.status,'Занятие',200);num(w.waitUntil,'Ожидание');num(w.completed,'Работа',0,SAFE,true);}
 if(s.workers.length>workerCapacity(s))bad('Работникам не хватает жилья');
+if(s.harvestBatch!==undefined){
+  arr(s.harvestBatch,'Грядки общего сбора',200000);
+  for(const id of s.harvestBatch)if(typeof id!=='string'||!/^b[1-9][0-9]*$/.test(id))bad('Неверная грядка общего сбора');
+}
 for(let o of s.orders){obj(o,'Заказ');uniqueId(o.id,'o');str(o.name,'Имя заказа');if(!['tutorial','bulk','trader','local'].includes(o.kind))bad('Тип заказа неизвестен');quantities(o.requirements,'Товары заказа');quantities(o.delivered,'Переданные товары');if(sum(o.requirements)<=0)bad('Пустой заказ');for(let[k,n]of Object.entries(o.delivered))if(n>(o.requirements[k]||0))bad('В заказе лишние переданные товары');num(o.reward,'Награда');num(o.xp,'Опыт заказа');bool(o.completed,'Завершение заказа');if(o.completed&&!Object.entries(o.requirements).every(([k,n])=>(o.delivered[k]||0)>=n))bad('Завершённый заказ неполон');}
 if(s.nextId<=maxId)bad('Счётчик идентификаторов может повториться');return {ok:true,msg:'Сохранение проверено'};
 }catch(e){return {ok:false,msg:e.message||'Повреждённое сохранение'};}}
 for(const [type,bonus]of [['path_wood',20],['path_stone',35],['path_brick',50]])BUILDINGS[type].desc+=' Скорость помощника на дорожке +'+bonus+'%. Маршрут выбирается по времени.';
 for(const d of Object.values(BUILDINGS))d.constructionSeconds=d.category==='decoration'||d.id==='plot'?0:Math.min(50,5+d.unlock*.25);
-const FC={shareBuildingCell,occupyBuildingCell,ROAD_LEVELS,roadLevel,roadUpgrade,FENCE_LEVELS,fenceLevel,fenceUpgrade,FARM_RULES,buildPreview,cottageLimit,weedStage,roadSpeed,findPath,workerMovement,SOCIAL,neighborBonus,dispatchBonus,marketStats,marketJob,TUNING,VERSION,CHUNK,SAFE,DEFAULT_FARM_NAME,FARM_NAME_LIMIT,normalizeFarmName,validFarmName,WORLD_MIN,WORLD_MAX,WORLD_RADIUS,WORLD_SECTORS,inWorld,ECONOMY,BUILDINGS,CROPS,VARIETIES,ITEMS,RECIPES,BIOMES,TASKS,workerVisual,create,step,act,levelNeed,technologyLevel,technology,statsFor,upgradePreview,specializePreview,demolishPreview,cropPreview,recipesFor,batchFor,used,capacity,freeSpace,workerCapacity,landInfo,frontier,checkPlace,validate,fmt,landOf,buildingById,itemValue,overlap};root.FC=FC;if(typeof module!=='undefined'&&module.exports)module.exports=FC;
+const FC={shareBuildingCell,occupyBuildingCell,ROAD_LEVELS,roadLevel,roadUpgrade,FENCE_LEVELS,fenceLevel,fenceUpgrade,FARM_RULES,buildPreview,cottageLimit,weedStage,roadSpeed,findPath,workerMovement,warehouseFreeSpace,SOCIAL,neighborBonus,dispatchBonus,marketStats,marketJob,TUNING,VERSION,CHUNK,SAFE,DEFAULT_FARM_NAME,FARM_NAME_LIMIT,normalizeFarmName,validFarmName,WORLD_MIN,WORLD_MAX,WORLD_RADIUS,WORLD_SECTORS,inWorld,ECONOMY,BUILDINGS,CROPS,VARIETIES,ITEMS,RECIPES,BIOMES,TASKS,workerVisual,create,step,act,levelNeed,technologyLevel,technology,statsFor,upgradePreview,specializePreview,demolishPreview,cropPreview,recipesFor,batchFor,used,capacity,freeSpace,workerCapacity,landInfo,frontier,checkPlace,validate,fmt,landOf,buildingById,itemValue,overlap};root.FC=FC;if(typeof module!=='undefined'&&module.exports)module.exports=FC;
 })(typeof globalThis!=='undefined'?globalThis:this);
 </script>
 <script>
@@ -4064,6 +4224,7 @@ const renderedMarkup=new WeakMap();
 function updateMarkup(el,html){if(renderedMarkup.get(el)!==html){el.innerHTML=html;renderedMarkup.set(el,html);}}
 const hudFmt=n=>fmt(n).replace(/\s/g,'');
 function updateHUD(){
+  $('harvestAllBtn').hidden=!state.workers.length;
   if(visitState){$('pauseBtn').disabled=true;$('settingsBtn').disabled=true;updateMarkup($('hud'),'<div class="visit-hud"><b>В гостях · '+h(visitState.farmName)+'</b><span>Уровень '+fmt(visitState.level)+'</span></div>');$('pauseVeil').classList.add('hide');return;}
   $('pauseBtn').disabled=false;$('settingsBtn').disabled=false;
   const used=FC.used(state),cap=FC.capacity(state),need=FC.levelNeed(state.level);
@@ -4158,7 +4319,7 @@ function renderBuilding(b){
   if(b.upgrade)out+='<div class="card gold topgap"><b class="small">Модернизация до уровня '+b.upgrade.toLevel+'</b><div class="row spread topgap"><span class="tiny muted">Стоимость уже списана</span>'+remaining(b.upgrade.end)+'</div>'+progress(b.upgrade.end,b.upgrade.start||Math.max(0,b.upgrade.end-20),'gold')+note('Оплаченные партии работают на прежних условиях. Содержимое и помощники сохраняются.')+'</div>';
   out+=note(d.desc);
   if(b.type==='plot')out+=renderPlot(b);
-  else if(b.type==='warehouse')out+='<div class="mini-grid topgap">'+stat(fmt(st.capacity),'вместимость этой постройки')+stat(fmt(FC.freeSpace(state)),'свободно на всех складах')+'</div>'+btn('Открыть склад и рынок','inventory',{},'full secondary topgap');
+  else if(b.type==='warehouse')out+='<div class="mini-grid topgap">'+stat(fmt(st.capacity),'вместимость этой постройки')+stat(fmt(FC.warehouseFreeSpace(state,b)),'свободно в этой постройке')+'</div>'+btn('Открыть склад и рынок','inventory',{},'full secondary topgap');
   else if(b.type==='house'||b.type==='cottage')out+='<div class="mini-grid topgap">'+stat(fmt(st.workerPlaces),'мест для работников')+stat(fmt(state.workers.length),'нанято на ферме')+'</div>'+btn('Назначить помощников','workers',{},'full secondary topgap');
   else if(b.type==='market')out+=renderMarket(b);
   else if(b.type==='kennel')out+=renderKennel(b);
