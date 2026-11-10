@@ -1633,8 +1633,13 @@ function roadImage(layout,x,y,w,h,done){
   }
   function* buildingImageCandidates(type,level,rotation,upper){
     for(const r of [rotation,(rotation+1)%4,(rotation+3)%4,(rotation+2)%4]){
-      // Unlisted lower levels can still have custom PNGs.
-      for(let n=level;n>=1;n--)yield `${type}-L${n}-R${r}.png`;
+      // Keep custom levels discoverable without probing every integer in a high-level save.
+      const limit=Math.min(level,32);
+      if(level>limit)yield `${type}-L${level}-R${r}.png`;
+      for(let i=upper.length-1;i>=0;i--){
+        const n=upper[i];if(n>limit&&n<level)yield `${type}-L${n}-R${r}.png`;
+      }
+      for(let n=limit;n>=1;n--)yield `${type}-L${n}-R${r}.png`;
       for(const n of upper)if(n>level)yield `${type}-L${n}-R${r}.png`;
     }
   }
@@ -1656,22 +1661,29 @@ function roadImage(layout,x,y,w,h,done){
     let record=BUILDING_IMAGES.get(name);
     if(record){if(record.status==='loading')record.watchers.add(world);return record;}
     const image=new Image();image.decoding='async';
-    record={image,name,status:'loading',watchers:new Set([world])};BUILDING_IMAGES.set(name,record);
+    let settle;
+    const settled=new Promise(resolve=>{settle=resolve;});
+    record={image,name,status:'loading',watchers:new Set([world]),settled};BUILDING_IMAGES.set(name,record);
     const finish=status=>{
       if(record.status!=='loading')return;
       clearTimeout(record.timer);record.status=status;if(status==='ready')buildingImageVersion++;
       // Also repaint a failed probe so the next fallback can be tried.
       for(const target of record.watchers)target._needsDraw=true;
-      record.watchers.clear();
+      record.watchers.clear();settle();
     };
-    image.onload=()=>finish(image.naturalWidth>0&&image.naturalHeight>0?'ready':'missing');
+    image.onload=()=>{
+      if(record.status!=='loading')return;
+      if(!image.naturalWidth||!image.naturalHeight){finish('missing');return;}
+      if(image.decode)image.decode().then(()=>finish('ready'),()=>finish('missing'));
+      else finish('ready');
+    };
     image.onerror=()=>finish('missing');
     record.timer=setTimeout(()=>finish('missing'),15000);
     image.src=(cfg.folder||'assets/buildings').replace(/\/$/,'')+'/'+name;
     return record;
   }
   let buildingImageVersion=0;
-  function optionalBuildingImage(b,world){
+  function optionalBuildingImage(b,world,allowCachedFallback=true){
     const cfg=G.FarmBuildingSprites||BUILDING_SPRITE_DEFAULTS;
     if(cfg.enabled===false)return null;
     if(cfg!==spriteConfig){spriteConfig=cfg;knownSpriteLevels=new Map();BUILDING_RESOLUTIONS.clear();}
@@ -1690,10 +1702,11 @@ function roadImage(layout,x,y,w,h,done){
     }
     if(state.record.status==='ready')return state.record;
     state.record.watchers.add(world);
+    if(!allowCachedFallback)return state.record;
     if(state.version!==buildingImageVersion){
       state.fallback=cachedBuildingFallback(b.type,level,rotation,state.upper);state.version=buildingImageVersion;
     }
-    return state.fallback;
+    return state.fallback||state.record;
   }
   const FEMALE_WORKER_NAMES=new Set(['маша','мария','соня','софья','софия','анна','полина','ольга','елена','наталья','татьяна','ирина','екатерина','дарья','алиса','вера','надежда','любовь','юлия','светлана','валентина','людмила','галина','евгения','александра','виктория','марина','нина','лидия','ксения']);
   class FarmWorld {
@@ -1801,7 +1814,7 @@ function roadImage(layout,x,y,w,h,done){
       let minX=Math.floor(Math.min(...corners.map(p=>p.x))/CHUNK),maxX=Math.floor(Math.max(...corners.map(p=>p.x))/CHUNK),minY=Math.floor(Math.min(...corners.map(p=>p.y))/CHUNK),maxY=Math.floor(Math.max(...corners.map(p=>p.y))/CHUNK);
       minX=Math.max(WORLD_MIN,minX,Math.floor(this.camera.x/CHUNK)-4);maxX=Math.min(WORLD_MAX,maxX,Math.floor(this.camera.x/CHUNK)+4);
       minY=Math.max(WORLD_MIN,minY,Math.floor(this.camera.y/CHUNK)-4);maxY=Math.min(WORLD_MAX,maxY,Math.floor(this.camera.y/CHUNK)+4);
-      this._drawBounds={left:center.x-this.width/(2*this.camera.zoom),right:center.x+this.width/(2*this.camera.zoom),top:center.y-this.height/(2*this.camera.zoom),bottom:center.y+this.height/(2*this.camera.zoom)};
+      this._drawBounds=this._viewportBounds(center);
       const lands=[],objects=[],buildings=[],groundPaths=[];this._terrainVisible=[];
       const gx0=Math.floor(Math.min(...corners.map(p=>p.x))/16)-1,gx1=Math.ceil(Math.max(...corners.map(p=>p.x))/16)+1;
       const gy0=Math.floor(Math.min(...corners.map(p=>p.y))/16)-1,gy1=Math.ceil(Math.max(...corners.map(p=>p.y))/16)+1;
@@ -1863,8 +1876,32 @@ function roadImage(layout,x,y,w,h,done){
       }
       for(const tree of this._wildernessObjects)objects.push(tree);
     }
-    _inViewport(x,y,w=1,h=1){
-      const q=this._drawBounds;if(!q)return true;
+    _viewportBounds(center=pt(this.camera.x,this.camera.y)){
+      const halfWidth=this.width/(2*this.camera.zoom),halfHeight=this.height/(2*this.camera.zoom);
+      return {left:center.x-halfWidth,right:center.x+halfWidth,top:center.y-halfHeight,bottom:center.y+halfHeight};
+    }
+    async preloadVisibleBuildingSprites(){
+      const bounds=this._viewportBounds(),unique=new Map();
+      for(const b of this.options.getState()?.buildings||[]){
+        const def=G.FC.BUILDINGS[b.type]||{};
+        if(!this._isPath(b)&&this._inViewport(b.x,b.y,b.w||def.w||1,b.h||def.h||1,bounds))unique.set(buildingImageName(b),b);
+      }
+      if(!unique.size)return;
+      // Optional art should never hold the whole farm on the loading screen.
+      let waiting=true,timer;
+      const deadline=new Promise(resolve=>{timer=setTimeout(resolve,4000);});
+      try{
+        await Promise.race([deadline,Promise.all([...unique.values()].map(async b=>{
+          while(waiting){
+            const record=optionalBuildingImage(b,this,false);
+            if(record?.status!=='loading')return;
+            await record.settled;
+          }
+        }))]);
+      }finally{waiting=false;clearTimeout(timer);}
+    }
+    _inViewport(x,y,w=1,h=1,q=this._drawBounds){
+      if(!q)return true;
       const left=(x-y-h)*29-160,right=(x+w-y)*29+160,top=(x+y)*15-230,bottom=(x+w+y+h)*15+30;
       return right>=q.left&&left<=q.right&&bottom>=q.top&&top<=q.bottom;
     }
@@ -2058,7 +2095,9 @@ function roadImage(layout,x,y,w,h,done){
       c.restore();
     }
     _gateParts(b){
-      if(optionalBuildingImage(b,this))return [{kind:'building',data:b,depth:b.x+b.y+(b.w||1)+(b.h||1)}];
+      const sprite=optionalBuildingImage(b,this);
+      if(sprite?.status==='loading')return [];
+      if(sprite)return [{kind:'building',data:b,depth:b.x+b.y+(b.w||1)+(b.h||1)}];
       const r=(b.rotation||0)%4,R=(u,v)=>r===0?[u,v]:r===1?[1-v,u]:r===2?[1-u,1-v]:[v,1-u];
       return [0,1].map(part=>{const u=part?.9167:-.0417,points=[[u,.45],[u+.125,.45],[u+.125,.99],[u,.99]].map(([x,y])=>R(x,y)),xs=points.map(p=>p[0]+b.x),ys=points.map(p=>p[1]+b.y),x=Math.min(...xs),y=Math.min(...ys),w=Math.max(...xs)-x,h=Math.max(...ys)-y;return {kind:'gatePart',data:{gate:b,part,x,y,w,h},depth:x+y+(w+h)/2};}).sort((a,b)=>a.depth-b.depth);
     }
@@ -2146,8 +2185,7 @@ function roadImage(layout,x,y,w,h,done){
       c.restore();
     }
 
-    _buildingSprite(c,b,ghost=false){
-      const record=optionalBuildingImage(b,this);if(!record)return false;
+    _buildingSprite(c,b,record,ghost){
       const cfg=G.FarmBuildingSprites||{},d=G.FC.BUILDINGS[b.type]||{},
         base=cfg.placements?.[record.name],custom=cfg.overrides?.[b.type]||{},view=cfg.overrides?.[record.name]||{},
         placement={...(base||{}),...custom,...view},origin=pt(b.x,b.y);
@@ -2185,7 +2223,6 @@ function roadImage(layout,x,y,w,h,done){
         for(let i=0;i<(chicken?3:2);i++)m.sprite(.14+W*(.17+i*(chicken?.22:.32)),.14+H*(.78+(i%2)*.06),1,chicken?12:17,18,()=>this._animal(c,b.type,{x:0,y:0},i+(b.rotation||0)));
         m.flush();
       }
-      return true;
     }
     _chimneyPuffs(c,x,y,pixelScale,b){
       // A single tiny cached texture; no gradient allocation or particle array per frame.
@@ -2239,7 +2276,14 @@ function roadImage(layout,x,y,w,h,done){
       c.beginPath();c.arc(-2,-2,4,0,Math.PI*2);c.fillStyle='#d5b87d';c.fill();c.restore();
     }
     _building(c,b,ghost=false){
-      if(!this._isPath(b)&&this._buildingSprite(c,b,ghost)){if(b.type==='plot')this._plotWeeds(c,b);return;}
+      const sprite=this._isPath(b)?null:optionalBuildingImage(b,this);
+      if(sprite){
+        if(sprite.status==='ready'){
+          this._buildingSprite(c,b,sprite,ghost);
+          if(b.type==='plot')this._plotWeeds(c,b);
+        }
+        return;
+      }
       const d=G.FC.BUILDINGS[b.type]||{},w=b.w||d.w||1,h=b.h||d.h||1,x=b.x,y=b.y,p=pt(x+w/2,y+h/2),lev=b.level||1;
       if(b.id===this.selectedId&&!ghost){tile(c,x-.09,y-.09,w+.18,h+.18,'#faf2a93d','#faee90',2.8);}
       if(d.category!=='decoration'&&!['plot','orchard','fishery','quarry','well','mill'].includes(b.type))tile(c,x+.04,y+.06,w-.08,h-.08,'#183c281a');
@@ -4352,7 +4396,7 @@ document.addEventListener('keydown',e=>{
 let lastFrame=0,accumulator=0,saveElapsed=0,lastPanelTime=0,animationTime=0,animationState=null;
 let frameTimer=null,frameRequest=null,lastPaint=0,lastPaintKey='',lastPaintState=null;
 function queueFrame(delay){clearTimeout(frameTimer);frameTimer=setTimeout(()=>{frameTimer=null;frameRequest=requestAnimationFrame(frame);},Math.max(0,delay));}
-function wakeFrame(){clearTimeout(frameTimer);frameTimer=null;if(frameRequest===null)frameRequest=requestAnimationFrame(frame);}
+function wakeFrame(){if($('loading'))return;clearTimeout(frameTimer);frameTimer=null;if(frameRequest===null)frameRequest=requestAnimationFrame(frame);}
 function frame(now){
   frameRequest=null;const started=performance.now();
   if(!lastFrame)lastFrame=now;const dt=Math.min(.25,Math.max(0,(now-lastFrame)/1000));lastFrame=now;
@@ -4415,15 +4459,16 @@ async function init(){
   try{await FarmSaves.open(saveStatus);state=await FarmSaves.load();cloudLoaded=true;}catch(e){saveStatus('error',e.message);if(FarmSaves.cloudMode&&!FarmNet.configured){$('loading').innerHTML='<h1>Не удалось загрузить ферму</h1><p class="small">'+h(e.message)+'</p><p class="note topgap">Облачный прогресс не заменён новой фермой.</p><button class="btn topgap" id="retryCloud">Повторить подключение</button>';$('retryCloud').onclick=()=>location.reload();return;}}
   state=await openFarmAtBoot(state,cloudLoaded);
   if(!state)state=FC.create();lastLevel=state.level;
-  await FarmWorld.ready;
   world=new FarmWorld($('world'),{getState:()=>visitState||state,onPick,onView:updateLandTitle});
-  world.setTheme(theme);world.setEconomy(economyMode);
+  world.setTheme(theme);world.setEconomy(economyMode);world.home();
+  const buildingsReady=world.preloadVisibleBuildingSprites();
+  await FarmWorld.ready;
   FarmNet.install(()=>state,applyNetworkState,saveStatus);
   FarmSocial.start(()=>state,()=>{if(world&&section==='top')renderPanel();});
-  await FarmNet.acceptLaunch().catch(e=>toast(e.message,true));
-  world.home();updateLandTitle();render(true);$('loading').remove();
+  await Promise.all([buildingsReady,FarmNet.acceptLaunch().catch(e=>toast(e.message,true))]);
+  updateLandTitle();render(true);
   if(innerWidth>=981)showPanel();else hidePanel();
-  frameRequest=requestAnimationFrame(frame);
+  frameRequest=requestAnimationFrame(now=>{frame(now);$('loading').remove();});
   // Explicit read-only diagnostic surface for local verification, no cheats in the UI.
   Object.defineProperty(window,'MeadowValley',{value:{get snapshot(){return JSON.parse(JSON.stringify(state));},get version(){return '1.0';}},writable:false});
 }
