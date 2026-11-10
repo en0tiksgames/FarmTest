@@ -3671,10 +3671,18 @@ async farm(id){const data=await request('/api/farms/'+encodeURIComponent(id)),s=
 'use strict';
 const api=(document.querySelector('meta[name="farm-social-api"]')?.content||'').replace(/\/$/,''),tg=()=>root.Telegram?.WebApp;
 let enabled=false,ready=true,busy=false,revision=0,session='',provider=null,replace=null,status=()=>{},nativeSave=null,queue=Promise.resolve(),lastBackup=0,failedWrite=null,recovery=null,leaseAt=0;
-let sessionKey='';const copy=v=>JSON.parse(JSON.stringify(v));
-const network={get enabled(){return enabled;},get ready(){return ready;},get busy(){return busy;},get configured(){return !!api&&!!tg()?.initData;},get recoveryAvailable(){return !!recovery;},id:null,error:'',rules:null,benefits:{neighbors:0,dogs:[]},balanceSupported:false,roadsSupported:false,gateRoadsSupported:false};
+let sessionKey='',takeoverSupported=false,errorCode='';const copy=v=>JSON.parse(JSON.stringify(v));
+const network={get enabled(){return enabled;},get ready(){return ready;},get busy(){return busy;},get configured(){return !!api&&!!tg()?.initData;},get recoveryAvailable(){return !!recovery;},get sessionConflict(){return network.isSessionConflict(errorCode);},id:null,error:'',rules:null,benefits:{neighbors:0,dogs:[]},balanceSupported:false,roadsSupported:false,gateRoadsSupported:false};
 function emit(){root.dispatchEvent(new CustomEvent('farm-network',{detail:{ready,busy,error:network.error}}));}
-function offline(error){if(provider)remember(provider());ready=false;network.error=error.message||String(error);status('error',network.error);emit();}
+network.isSessionConflict=code=>code==='ACTIVE_SESSION'||code==='SESSION_REPLACED';
+function offline(error){
+ const replaced=error.code==='SESSION_REPLACED'&&errorCode!=='SESSION_REPLACED';
+ if(provider)remember(provider());
+ ready=false;errorCode=error.code;network.error=error.message||String(error);status('error',network.error);emit();
+ if(replaced&&takeoverSupported){
+  try{tg()?.disableClosingConfirmation?.();tg()?.close?.();}catch(_){}
+ }
+}
 async function request(path,body){
  const stamp=FarmBalance.stamp,separator=path.includes('?')?'&':'?';
  const response=await fetch(api+path+separator+'balanceStamp='+stamp,{method:body?'POST':'GET',headers:{Authorization:'tma '+tg().initData,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(15000),referrerPolicy:'no-referrer'});
@@ -3692,13 +3700,21 @@ async function write(snapshot,key=crypto.randomUUID(),base=revision){
  if(nativeSave&&performance.now()-lastBackup>30000){lastBackup=performance.now();void nativeSave(snapshot);}
  status('saved','Прогресс сохранён на сервере.');return true;
 }
-network.bootstrap=async(local,allowCreate=true)=>{
+function openSession(state,takeover){
+ if(takeover){
+  if(!takeoverSupported)throw new Error('Чтобы переносить сессию кнопкой «Повторить», обновите Cloudflare Worker.');
+  session=crypto.randomUUID();
+  try{sessionStorage.setItem(sessionKey,session);}catch(_){}
+ }
+ return request('/api/session/open',takeover?{session,state:null,takeover:true}:{session,state});
+}
+network.bootstrap=async(local,allowCreate=true,takeover=false)=>{
  if(!network.configured)return local;
  sessionKey='farm-session-'+(tg().initDataUnsafe?.user?.id||'telegram')+'-'+location.pathname;
- const health=await request('/api/health');network.roadsSupported=health.features?.roads===1;network.gateRoadsSupported=health.features?.gateRoads===1;if(health.features?.raids===1&&health.features?.farmCare!==1)throw new Error('Для дорожек, прополки и зарплаты сначала обновите сервер файлом worker-balance.txt из архива обновления.');network.balanceSupported=health.features?.balance===1;if(network.balanceSupported)await request('/api/balance');if(health.features?.raids!==1){let primary=false;try{primary=localStorage.getItem(sessionKey+'_primary')==='1';}catch(_){}if(primary)throw new Error('Эта ферма уже хранится на сервере. Верните обновлённую версию сервера, чтобы продолжить.');if(!allowCreate&&!local)throw new Error('Не удалось загрузить личное сохранение. Повторите подключение.');return local;}
+ const health=await request('/api/health');takeoverSupported=health.features?.sessionTakeover===1;network.roadsSupported=health.features?.roads===1;network.gateRoadsSupported=health.features?.gateRoads===1;if(health.features?.raids===1&&health.features?.farmCare!==1)throw new Error('Для дорожек, прополки и зарплаты сначала обновите сервер файлом worker-balance.txt из архива обновления.');network.balanceSupported=health.features?.balance===1;if(network.balanceSupported)await request('/api/balance');if(health.features?.raids!==1){let primary=false;try{primary=localStorage.getItem(sessionKey+'_primary')==='1';}catch(_){}if(primary)throw new Error('Эта ферма уже хранится на сервере. Верните обновлённую версию сервера, чтобы продолжить.');if(!allowCreate&&!local)throw new Error('Не удалось загрузить личное сохранение. Повторите подключение.');return local;}
  enabled=true;ready=false;
  try{session=sessionStorage.getItem(sessionKey)||crypto.randomUUID();sessionStorage.setItem(sessionKey,session);recovery=JSON.parse(localStorage.getItem(sessionKey+'_recovery')||'null');}catch(_){session=session||crypto.randomUUID();}
- const data=await request('/api/session/open',{session,state:local||(allowCreate?FC.create():null)});const valid=FC.validate(data.state);if(!valid.ok)throw new Error('Серверное сохранение не прошло проверку: '+valid.msg);
+ const data=await openSession(takeover?null:local||(allowCreate?FC.create():null),takeover);const valid=FC.validate(data.state);if(!valid.ok)throw new Error('Серверное сохранение не прошло проверку: '+valid.msg);
  revision=data.revision;network.id=data.id;network.rules=data.rules;ready=true;leaseAt=performance.now();try{localStorage.setItem(sessionKey+'_primary','1');}catch(_){}return data.state;
 };
 network.install=(getState,setState,onStatus)=>{
@@ -3709,14 +3725,21 @@ network.install=(getState,setState,onStatus)=>{
  setInterval(()=>{if(!document.hidden&&ready&&!busy)void FarmSaves.save(provider());},10000);
  // Freeze before a presence lease can expire, even if a browser suspended timers.
  setInterval(()=>{if(!document.hidden&&ready&&!busy&&performance.now()-leaseAt>30000)offline(new Error('Подтверждаем связь с сервером. Нажмите «Переподключиться».'));},1000);
- document.addEventListener('visibilitychange',()=>{if(!document.hidden){ready=false;emit();void network.reconnect();}});
+ document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden&&!network.sessionConflict){ready=false;emit();void network.reconnect();}
+ });
 };
-network.reconnect=()=>enqueue(async()=>{
- if(!enabled)return;ready=false;network.error='Подключаемся к ферме…';emit();
+network.reconnect=(takeover=false)=>enqueue(async()=>{
+ if(!enabled||(network.sessionConflict!==takeover))return;
+ ready=false;busy=true;network.error='Подключаемся к ферме…';emit();
  try{
-  if(failedWrite){try{const d=await request('/api/session/save',failedWrite);revision=d.revision;failedWrite=null;}catch(e){if(!['STALE_STATE','SESSION_REPLACED'].includes(e.code))throw e;remember(provider());failedWrite=null;}}
-  const data=await request('/api/session/open',{session,state:null});const valid=FC.validate(data.state);if(!valid.ok)throw new Error(valid.msg);revision=data.revision;network.id=data.id;replace(data.state);ready=true;network.error='';leaseAt=performance.now();status('saved','Загружен актуальный прогресс.');
- }catch(e){offline(e);}finally{emit();}
+  if(takeover)failedWrite=null;
+  if(failedWrite){
+   try{const d=await request('/api/session/save',failedWrite);revision=d.revision;failedWrite=null;}
+   catch(e){if(!['STALE_STATE','SESSION_REPLACED'].includes(e.code))throw e;remember(provider());failedWrite=null;if(e.code==='SESSION_REPLACED')throw e;}
+  }
+  const data=await openSession(null,takeover);const valid=FC.validate(data.state);if(!valid.ok)throw new Error(valid.msg);revision=data.revision;network.id=data.id;replace(data.state);ready=true;errorCode='';network.error='';leaseAt=performance.now();status('saved','Загружен актуальный прогресс.');
+ }catch(e){offline(e);}finally{busy=false;emit();}
 });
 network.balanceRequest=request;
 network.social=()=>request('/api/social');network.invite=()=>request('/api/social/invite');network.preview=id=>request('/api/raids/preview?id='+encodeURIComponent(id));
@@ -3832,7 +3855,7 @@ async function previewRaid(id){const quote=await FarmNet.preview(id);if(!quote.a
 }
 async function executeRaid(id,victimRevision){try{const loot=await FarmNet.raid(id,victimRevision);if(visitProfile?.id===id){const data=await FarmSocial.farm(id);data.raid=await FarmNet.preview(id);visitProfile=data;visitState=data.snapshot;world.refresh();render(true);}openModal('Добыча получена',note('Золото: '+fmt(loot.coins)+' · Грядок: '+loot.plots)+goods(loot.items));neighborsState.data=null;}catch(e){toast(e.message,true);}}
 function applyNetworkState(next){state=next;lastLevel=next.level;world?.refresh();if(selectedId&&!next.buildings.some(b=>b.id===selectedId))selectedId=null;previousHud='';previousFarmName='';render(true);updateLandTitle();}
-window.addEventListener('farm-network',()=>{const gate=$('networkGate'),blocked=FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy);gate.classList.toggle('hide',!blocked);$('networkMessage').textContent=FarmNet.error||'Подключаемся к серверу…';const retry=gate.querySelector('button');retry.disabled=FarmNet.busy;});
+window.addEventListener('farm-network',()=>{const gate=$('networkGate'),blocked=FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy);gate.classList.toggle('hide',!blocked);$('networkMessage').textContent=FarmNet.error||'Подключаемся к серверу…';const retry=gate.querySelector('button');retry.disabled=FarmNet.busy;retry.textContent=FarmNet.sessionConflict?'Повторить':'Переподключиться';});
 
 function applyTheme(){
   if(theme!=='dark'&&theme!=='light')theme='light';
@@ -4225,7 +4248,7 @@ function showHelp(){
   openModal('Добро пожаловать в долину',help.map(([title,text])=>'<div class="help-section"><h3>'+h(title)+'</h3><p>'+h(text)+'</p></div>').join('')+'<div class="card soft">'+note('Игра целиком находится в этом HTML-файле. Интернет, установки и сервер не нужны. Для переноса прогресса используйте экспорт JSON в настройках.')+'</div>');
 }
 async function handleAction(action,p){
-  if(action==='networkReconnect'){await FarmNet.reconnect();return;}
+  if(action==='networkReconnect'){await FarmNet.reconnect(FarmNet.sessionConflict);return;}
   if(!state&&action!=='help'&&action!=='toggleTheme')return;
   if(FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy)&&!['export','help','closeModal'].includes(action)){toast('Дождитесь подключения к серверу.',true);return;}
   if(action==='neighbors'){section='neighbors';showPanel();render(true);await loadNeighbors();return;}
@@ -4370,12 +4393,27 @@ function saveStatus(kind,msg){
   const warning=kind==='error'||kind==='warning';const dot=$('saveDot');if(dot){dot.classList.toggle('bad',warning);dot.title=msg;}
 }
 window.addEventListener('error',e=>{if(!state){$('loading').innerHTML='<h1>Не удалось открыть ферму</h1><p>'+h(e.message)+'</p><p class="note">Попробуйте открыть файл в актуальном браузере.</p>';}else{saveStatus('error','Ошибка игры: '+e.message+'. Экспортируйте JSON, чтобы сохранить текущую ферму.');}});
+async function openFarmAtBoot(local,cloudLoaded){
+ try{return await FarmNet.bootstrap(local,cloudLoaded);}
+ catch(error){
+  if(!FarmNet.isSessionConflict(error.code))throw error;
+  $('loading').innerHTML='<h1>Ферма открыта на другом устройстве</h1><p class="small" id="sessionTransferMessage">Нажмите «Повторить», чтобы перенести сюда последнее сохранение и завершить прежнюю сессию.</p><button class="btn" id="retryNetworkBoot">Повторить</button>';
+  const retry=$('retryNetworkBoot');
+  return new Promise(resolve=>{
+   retry.onclick=async()=>{
+    retry.disabled=true;
+    try{resolve(await FarmNet.bootstrap(local,cloudLoaded,true));}
+    catch(e){$('sessionTransferMessage').textContent=e.message;retry.disabled=false;}
+   };
+  });
+ }
+}
 async function init(){
   $('helpBtn').innerHTML=ico('help',20);$('settingsBtn').innerHTML=ico('settings',20);
   applyTheme();
   let cloudLoaded=false;
   try{await FarmSaves.open(saveStatus);state=await FarmSaves.load();cloudLoaded=true;}catch(e){saveStatus('error',e.message);if(FarmSaves.cloudMode&&!FarmNet.configured){$('loading').innerHTML='<h1>Не удалось загрузить ферму</h1><p class="small">'+h(e.message)+'</p><p class="note topgap">Облачный прогресс не заменён новой фермой.</p><button class="btn topgap" id="retryCloud">Повторить подключение</button>';$('retryCloud').onclick=()=>location.reload();return;}}
-  state=await FarmNet.bootstrap(state,cloudLoaded);
+  state=await openFarmAtBoot(state,cloudLoaded);
   if(!state)state=FC.create();lastLevel=state.level;
   await FarmWorld.ready;
   world=new FarmWorld($('world'),{getState:()=>visitState||state,onPick,onView:updateLandTitle});
