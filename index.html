@@ -3698,7 +3698,9 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
         this._roadStampTime=time;this._roadStampRevision=revision;
       }
       const epoch=this._roadEpoch;
-      const rasterScale=Math.max(1.5,Math.ceil(this.dpr*this.camera.zoom*2)/2);
+      // Prepare roads for the maximum supported zoom once. Wheel/pinch
+      // events must only scale the cached bitmap, never rebuild the SVG.
+      const rasterScale=Math.max(1.5,Math.ceil(this.dpr*2.4*2)/2);
       for(const chunk of chunks){
         const [cx,cy]=chunk.split(',').map(Number),x=cx*span,y=cy*span;
         let layer=this._roadImages.get(chunk);
