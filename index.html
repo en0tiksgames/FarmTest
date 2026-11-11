@@ -1537,22 +1537,32 @@ function makePatches(layout){
   return patches;
 }
 
-function roadImage(layout,x,y,w,h,done){
+function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
   const width=(w+h)*TW/2+2,height=(w+h)*TH/2+2;
   const matrix=[TW/(2*size),TH/(2*size),-TW/(2*size),TH/(2*size),1+(h-x+y)*TW/2,1-(x+y)*TH/2];
   const markup=definitions('road',new Set(layout.values()))
     +'<clipPath id="area"><rect x="'+x*size+'" y="'+y*size+'" width="'+w*size+'" height="'+h*size+'"/></clipPath>'
     +'<g transform="matrix('+matrix.join(' ')+')" clip-path="url(#area)">'
     +recessedRoads('road',makePatches(layout),1.75/.98)+'</g>';
-  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+Math.ceil(width*1.5)+'" height="'+Math.ceil(height*1.5)
+  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+Math.ceil(width*rasterScale)+'" height="'+Math.ceil(height*rasterScale)
     +'" viewBox="0 0 '+width+' '+height+'">'+markup+'</svg>';
   const image=new Image();
   const url=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));
-  image.onload=()=>{URL.revokeObjectURL(url);done();};
+  image.onload=()=>{
+    // Rasterize the immutable SVG once. Replaying its patterns at every draw
+    // is particularly expensive for the densely packed wooden rounds.
+    const raster=document.createElement('canvas');
+    raster.width=image.naturalWidth;raster.height=image.naturalHeight;
+    const ctx=raster.getContext('2d');
+    try{if(ctx){ctx.drawImage(image,0,0);layer.bitmap.raster=raster;}}
+    catch(_){/* Keep the SVG fallback if the raster cannot be allocated. */}
+    finally{URL.revokeObjectURL(url);done();}
+  };
   image.onerror=()=>URL.revokeObjectURL(url);
   image.src=url;
   const origin=pt(x,y+h);
-  return {image,x:origin.x-1,y:pt(x,y).y-1,width,height};
+  const layer={image,bitmap:{raster:null},x:origin.x-1,y:pt(x,y).y-1,width,height};
+  return layer;
 }
     return roadImage;
   })();
@@ -3688,10 +3698,11 @@ function roadImage(layout,x,y,w,h,done){
         this._roadStampTime=time;this._roadStampRevision=revision;
       }
       const epoch=this._roadEpoch;
+      const rasterScale=Math.max(1.5,Math.ceil(this.dpr*this.camera.zoom*2)/2);
       for(const chunk of chunks){
         const [cx,cy]=chunk.split(',').map(Number),x=cx*span,y=cy*span;
         let layer=this._roadImages.get(chunk);
-        if(layer?.revision!==revision||layer?.epoch!==epoch){
+        if(layer?.revision!==revision||layer?.epoch!==epoch||layer?.rasterScale!==rasterScale){
           const layout=new Map();
           for(let sy=Math.floor((y-halo)/CHUNK);sy<=Math.floor((y+span+halo-1)/CHUNK);sy++){
             for(let sx=Math.floor((x-halo)/CHUNK);sx<=Math.floor((x+span+halo-1)/CHUNK);sx++){
@@ -3703,17 +3714,17 @@ function roadImage(layout,x,y,w,h,done){
             }
           }
           const signature=[...layout].sort().join('|');
-          if(layer?.signature!==signature){
+          if(layer?.signature!==signature||layer?.rasterScale!==rasterScale){
             const cells=[...layout.keys()].map(k=>k.split(',').map(Number))
               .filter(([u,v])=>u>=x&&u<x+span&&v>=y&&v<y+span);
             const left=Math.min(...cells.map(([u])=>u)),right=Math.max(...cells.map(([u])=>u));
             const top=Math.min(...cells.map(([,v])=>v)),bottom=Math.max(...cells.map(([,v])=>v));
-            layer={signature,...roadImage(layout,left,top,right-left+1,bottom-top+1,()=>{this._needsDraw=true;})};
+            layer={signature,rasterScale,...roadImage(layout,left,top,right-left+1,bottom-top+1,()=>{this._needsDraw=true;},rasterScale)};
             this._roadImages.set(chunk,layer);
           }
           layer.time=time;layer.revision=revision;layer.epoch=epoch;
         }
-        if(layer.image.complete&&layer.image.naturalWidth)c.drawImage(layer.image,layer.x,layer.y,layer.width,layer.height);
+        if(layer.image.complete&&layer.image.naturalWidth)c.drawImage(layer.bitmap?.raster||layer.image,layer.x,layer.y,layer.width,layer.height);
         else for(const b of visible){
           if(b.x>=x&&b.x<x+span&&b.y>=y&&b.y<y+span)this._decor(c,b,G.FC.BUILDINGS[b.type]);
         }
