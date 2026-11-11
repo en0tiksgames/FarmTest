@@ -2022,7 +2022,14 @@ function roadImage(layout,x,y,w,h,done){
       for(const w of s.workers||[]){const key=`${Math.floor((Number.isFinite(w.x)?w.x:7.5)/CHUNK)},${Math.floor((Number.isFinite(w.y)?w.y:5.5)/CHUNK)}`;if(!this._workerIndex.has(key))this._workerIndex.set(key,[]);this._workerIndex.get(key).push(w);}
     }
     captureWorkers(s){
-      this._workerMotion=new Map((s.workers||[]).map(w=>[w.id,{worker:w,x:w.x,y:w.y,path:(w.path||[]).slice(0,4).map(p=>({...p})),pathLength:w.path?.length||0}]));
+      const motion=new Map();
+      for(const w of s.workers||[]){
+        const path=[];
+        for(let i=0;i<Math.min(4,w.path?.length||0);i++)path.push({...w.path[i]});
+        motion.set(w.id,{worker:w,x:w.x,y:w.y,path,pathLength:w.path?.length||0});
+      }
+      this._workerMotion=motion;
+      if(this._gaits)for(const id of this._gaits.keys())if(!motion.has(id))this._gaits.delete(id);
     }
     finishWorkers(s){
       for(const w of s.workers||[]){const m=this._workerMotion?.get(w.id);if(!m||m.worker!==w)continue;
@@ -4143,6 +4150,7 @@ async function enterVisit(id){const request=++visitRequest;try{toast('Загру
 function leaveVisit(){visitRequest++;if(visitState){visitState=null;visitProfile=null;document.body.classList.remove('visiting');visitSelectedId=null;world.refresh();world.camera={...visitContext.camera};selectedId=visitContext.selectedId;selectedLand={...visitContext.selectedLand};world.selectedId=selectedId;visitContext=null;world.hover=null;$('visitBanner').classList.add('hide');previousHud='';previousFarmName='';}section='farm';showPanel();render(true);updateLandTitle();}
 
 const neighborsState={data:null,loading:false,error:''};
+let neighborsRequest=0;
 function raidRulesText(){const r=FarmNet.rules||{};return 'До '+(r.maxPlots??10)+' грядок · '+(r.cropPercent??10)+'% урожая · '+(r.goldPercent??5)+'% золота, максимум '+fmt(r.maxGold??10000)+'. Защита: '+secs((r.protectionMs??28800000)/1000)+', повтор: '+secs((r.pairCooldownMs??28800000)/1000)+'.';}
 function renderNeighbors(){
  const rules=FarmNet.rules||{};let out=note('Набеги с уровня '+(rules.minLevel??10)+', защита новичка '+secs((rules.newcomerMs??172800000)/1000)+', разница уровней до '+(rules.levelGap??10)+'. Лимит '+(rules.dailyLimit??3)+' за '+secs((rules.dayMs??86400000)/1000)+'.');
@@ -4161,7 +4169,14 @@ function renderNeighbors(){
  if(!data.history.length)out+=note('Набегов пока не было.');
  return out;
 }
-async function loadNeighbors(){if(!FarmNet.enabled)return;neighborsState.loading=true;neighborsState.error='';renderPanel();try{neighborsState.data=await FarmNet.social();}catch(e){neighborsState.error=e.message;}finally{neighborsState.loading=false;if(section==='neighbors')renderPanel();}}
+async function loadNeighbors(){
+ if(!FarmNet.enabled)return;
+ const request=++neighborsRequest;
+ neighborsState.loading=true;neighborsState.error='';renderPanel();
+ try{const data=await FarmNet.social();if(request===neighborsRequest)neighborsState.data=data;}
+ catch(e){if(request===neighborsRequest)neighborsState.error=e.message;}
+ finally{if(request===neighborsRequest){neighborsState.loading=false;if(section==='neighbors')renderPanel();}}
+}
 async function previewRaid(id){const quote=await FarmNet.preview(id);if(!quote.allowed){toast(quote.reason,true);if(visitProfile?.id===id){visitProfile.raid=quote;renderPanel();}return;}
  openModal('Забрать добычу?',note('Золото: '+fmt(quote.coins)+' · Грядок: '+quote.plots.length)+goods(quote.items)+note('После набега защита: '+secs(quote.rules.protectionMs/1000)+'. Повторная кража у этого соседа: через '+secs(quote.rules.pairCooldownMs/1000)+'.'),'Забрать',()=>{void executeRaid(id,quote.victimRevision);});
 }
@@ -4452,12 +4467,14 @@ function renderDevelopment(){
 }
 function renderWorkers(){
   const capacity=FC.workerCapacity(state),hireCost=Math.floor(Math.min(9e14,FC.TUNING.hireCost*Math.pow(state.workers.length+1,FC.TUNING.hireExponent)));
+  const cottage=FC.cottageLimit(state);
   let out='<div class="card soft"><div class="row spread"><b class="small">Места для помощников</b><span>'+state.workers.length+' / '+fmt(capacity)+'</span></div><div class="cost-line">'+cost({coins:hireCost})+'</div>'+btn('Нанять помощника','hire',{},'full',state.level<FC.TUNING.hireUnlock||state.workers.length>=capacity||state.coins<hireCost,state.level<FC.TUNING.hireUnlock?'Доступно на уровне '+FC.TUNING.hireUnlock:state.workers.length>=capacity?'Нужно больше жилья':'Не хватает монет')+'<div class="topgap">'+note(state.level<FC.TUNING.hireUnlock?'Работники открываются на уровне '+FC.TUNING.hireUnlock+'.':'Найм оплачивается один раз. Зарплата — 1 монета за игровую минуту на каждого помощника, включая ожидание. На паузе и вне игры расходов нет. Без монет работа приостанавливается без долгов.')+'</div></div>';
-  out+='<div class="card soft topgap">'+note('Зарплата команды: '+fmt(state.workers.length)+' монет / игровую минуту. Домики работников: '+state.buildings.filter(b=>b.type==='cottage').length+' / '+FC.cottageLimit(state).limit+'. Следующий лимит на уровне '+FC.cottageLimit(state).next+'.')+'</div>';
+  out+='<div class="card soft topgap">'+note('Зарплата команды: '+fmt(state.workers.length)+' монет / игровую минуту. Домики работников: '+state.buildings.filter(b=>b.type==='cottage').length+' / '+cottage.limit+'. Следующий лимит на уровне '+cottage.next+'.')+'</div>';
+  const workBuildings=state.buildings.filter(b=>['plot','well','market'].includes(b.type)||FC.recipesFor(state,b).length);
   const tasks=[['weed','Только прополка'],['all','Любая полезная работа'],['water','Полив и запас воды'],['harvest','Сбор и повторная посадка'],['feed','Кормление и запуск цехов'],['transport','Перенос готовой продукции']];
   out+=sectionTitle('Команда долины');
   if(!state.workers.length)return out+'<div class="empty"><span class="emoji">🧑‍🌾</span>Первый помощник начнёт поливать посадки, собирать урожай и переносить товары. Его работа будет видна на карте.</div>';
-  out+=state.workers.map(w=>'<div class="worker-card"><div class="card-title"><span class="round-ico">🧑‍🌾</span><div><h3>'+h(w.name)+'</h3><p class="tiny muted">'+h(w.status||'Ищет задачу')+'</p></div></div><label class="form-label">Основная задача</label><select data-change="worker" data-id="'+h(w.id)+'" data-key="task">'+tasks.map(([id,label])=>'<option value="'+id+'"'+(w.task===id?' selected':'')+'>'+label+'</option>').join('')+'</select><label class="form-label">Рабочая зона</label><select data-change="worker" data-id="'+h(w.id)+'" data-key="buildingId"><option value="">Всё хозяйство</option>'+state.buildings.filter(b=>['plot','well','market'].includes(b.type)||FC.recipesFor(state,b).length).map(b=>'<option value="'+h(b.id)+'"'+(w.buildingId===b.id?' selected':'')+'>'+h(FC.BUILDINGS[b.type].name)+' · '+b.x+'/'+b.y+'</option>').join('')+'</select><label class="form-label">Приоритет работника</label><select data-change="worker" data-id="'+h(w.id)+'" data-key="priority">'+[[1,'Обычный'],[2,'Высокий'],[3,'Первоочередной']].map(([n,t])=>'<option value="'+n+'"'+(w.priority===n?' selected':'')+'>'+t+'</option>').join('')+'</select><div class="toggle-line"><div><b class="small">Прополка</b><p class="tiny muted">Для режима «Любая работа»</p></div><button class="toggle '+(w.weeding!==false?'on':'')+'" data-action="workerWeeding" data-p="'+h(JSON.stringify({id:w.id}))+'" aria-label="Прополка помощником" aria-pressed="'+(w.weeding!==false)+'"></button></div><p class="note">1 монета / игровую минуту'+(w.unpaid?' · работа приостановлена: нет монет':'')+'</p>'+btn('Отпустить помощника','fireWorker',{id:w.id},'ghost full topgap')+'<p class="note topgap">Завершено задач: '+fmt(w.completed||0)+'</p></div>').join('');
+  out+=state.workers.map(w=>'<div class="worker-card"><div class="card-title"><span class="round-ico">🧑‍🌾</span><div><h3>'+h(w.name)+'</h3><p class="tiny muted">'+h(w.status||'Ищет задачу')+'</p></div></div><label class="form-label">Основная задача</label><select data-change="worker" data-id="'+h(w.id)+'" data-key="task">'+tasks.map(([id,label])=>'<option value="'+id+'"'+(w.task===id?' selected':'')+'>'+label+'</option>').join('')+'</select><label class="form-label">Рабочая зона</label><select data-change="worker" data-id="'+h(w.id)+'" data-key="buildingId"><option value="">Всё хозяйство</option>'+workBuildings.map(b=>'<option value="'+h(b.id)+'"'+(w.buildingId===b.id?' selected':'')+'>'+h(FC.BUILDINGS[b.type].name)+' · '+b.x+'/'+b.y+'</option>').join('')+'</select><label class="form-label">Приоритет работника</label><select data-change="worker" data-id="'+h(w.id)+'" data-key="priority">'+[[1,'Обычный'],[2,'Высокий'],[3,'Первоочередной']].map(([n,t])=>'<option value="'+n+'"'+(w.priority===n?' selected':'')+'>'+t+'</option>').join('')+'</select><div class="toggle-line"><div><b class="small">Прополка</b><p class="tiny muted">Для режима «Любая работа»</p></div><button class="toggle '+(w.weeding!==false?'on':'')+'" data-action="workerWeeding" data-p="'+h(JSON.stringify({id:w.id}))+'" aria-label="Прополка помощником" aria-pressed="'+(w.weeding!==false)+'"></button></div><p class="note">1 монета / игровую минуту'+(w.unpaid?' · работа приостановлена: нет монет':'')+'</p>'+btn('Отпустить помощника','fireWorker',{id:w.id},'ghost full topgap')+'<p class="note topgap">Завершено задач: '+fmt(w.completed||0)+'</p></div>').join('');
   return out+note('Задачи резервируются. Дорожки ускоряют ходьбу: дерево +20%, камень +35%, кирпич +50%. При наличии пути помощник выбирает более быстрый маршрут. С диспетчерской суммарное ускорение передвижения ограничено ×3.');
 }
 function renderInventory(){
@@ -4724,7 +4741,7 @@ function saveStatus(kind,msg){
   saveState=kind;saveMessage=msg;
   const warning=kind==='error'||kind==='warning';const dot=$('saveDot');if(dot){dot.classList.toggle('bad',warning);dot.title=msg;}
 }
-window.addEventListener('error',e=>{if(!state){$('loading').innerHTML='<h1>Не удалось открыть ферму</h1><p>'+h(e.message)+'</p><p class="note">Попробуйте открыть файл в актуальном браузере.</p>';}else{saveStatus('error','Ошибка игры: '+e.message+'. Экспортируйте JSON, чтобы сохранить текущую ферму.');}});
+window.addEventListener('error',e=>{if(!state){const loading=$('loading');if(!loading)return;loading.innerHTML='<h1>Не удалось открыть ферму</h1><p>'+h(e.message)+'</p><p class="note">Попробуйте открыть файл в актуальном браузере.</p>';}else{saveStatus('error','Ошибка игры: '+e.message+'. Экспортируйте JSON, чтобы сохранить текущую ферму.');}});
 async function openFarmAtBoot(local,cloudLoaded){
  try{return await FarmNet.bootstrap(local,cloudLoaded);}
  catch(error){
