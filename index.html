@@ -651,13 +651,17 @@ function roadMap(s){
   return roads;
 }
 function roadSpeed(s,x,y){return roadMap(s).get(Math.floor(x+.5)+','+Math.floor(y+.5))||1;}
+const terrainCosts=new WeakMap();
 function terrainStep(roads,x,y,u,v,boost){
  const a=roads.get(x+','+y)||1,b=roads.get(u+','+v)||1;
+ let costs=terrainCosts.get(roads);if(!costs){costs=new Map();terrainCosts.set(roads,costs);}
+ const key=boost+':'+a+':'+b;let cached=costs.get(key);if(cached)return cached;
  const paved=a>1&&b>1?.5:.35;
  const base=Math.min(FARM_RULES.movementMax,boost);
  const left=Math.min(FARM_RULES.movementMax,boost*a),right=Math.min(FARM_RULES.movementMax,boost*b);
- return {time:(1-2*paved)/base+paved/left+paved/right,
+ cached={time:(1-2*paved)/base+paved/left+paved/right,
    dirt:1-paved*(Number(a>1)+Number(b>1))};
+ costs.set(key,cached);return cached;
 }
 function walkRoadAware(w,time,speeds,movement,baseSpeed,boost){
   const epsilon=1e-8;
@@ -802,10 +806,16 @@ function passableAt(s,x,y,cache=navigationIndex(s).blocked){
 function entrancePoints(s,b,cache=navigationIndex(s).blocked){let points=[];for(let x=b.x;x<b.x+b.w;x++)points.push({x,y:b.y-1},{x,y:b.y+b.h});for(let y=b.y;y<b.y+b.h;y++)points.push({x:b.x-1,y},{x:b.x+b.w,y});return points.filter(p=>passableAt(s,p.x,p.y,cache));}
 function nearestEntrance(s,b,from={x:b.x,y:b.y+b.h}){let points=entrancePoints(s,b);points.sort((a,c)=>(Math.abs(a.x-from.x)+Math.abs(a.y-from.y))-(Math.abs(c.x-from.x)+Math.abs(c.y-from.y)));return points[0]||null;}
 function rerouteWorkers(s){navigation.delete(s);for(let w of s.workers){w.target=null;w.action=null;w.path=[];w.waitUntil=s.time;}}
+const PATH_DIRECTIONS=[[1,0],[0,1],[-1,0],[0,-1]];
 function findPath(s,w,b,blockedCache=navigationIndex(s).blocked,boost=1+dispatchBonus(s)){
  const destinations=entrancePoints(s,b,blockedCache);if(!destinations.length)return null;
  const keys=new Set(destinations.map(p=>p.x+','+p.y)),key=(x,y)=>x+','+y;
  let start={x:Math.round(w.x),y:Math.round(w.y)};if(!passableAt(s,start.x,start.y)){start=nearestEntrance(s,s.buildings.find(b=>b.type==='house')||b)||destinations[0];}
+ const nav=navigationIndex(s),roadsNow=roadMap(s),landCount=Object.keys(s.lands).length;
+ if(nav.pathRoads!==roadsNow||nav.pathLands!==landCount){nav.paths=new Map();nav.pathRoads=roadsNow;nav.pathLands=landCount;}
+ const cacheKey=[start.x,start.y,b.x,b.y,b.w,b.h,boost].join(':');
+ const cached=nav.paths.get(cacheKey);
+ if(cached)return cached.map(p=>({...p}));
  // A* minimizes travel time. Dirt distance breaks equal-time ties in favor of roads.
  const roads=roadMap(s),maxSpeed=Math.min(FARM_RULES.movementMax,boost*(1+ROAD_LEVELS.at(-1).speed));
  const heuristic=(x,y)=>{
@@ -817,8 +827,10 @@ function findPath(s,w,b,blockedCache=navigationIndex(s).blocked,boost=1+dispatch
  const push=n=>{heap.push(n);let i=heap.length-1;while(i){const p=(i-1)>>1;if(!less(heap[i],heap[p]))break;[heap[i],heap[p]]=[heap[p],heap[i]];i=p;}};
  const pop=()=>{const n=heap[0],tail=heap.pop();if(heap.length){heap[0]=tail;let i=0;while(true){let j=i,l=i*2+1,r=l+1;if(l<heap.length&&less(heap[l],heap[j]))j=l;if(r<heap.length&&less(heap[r],heap[j]))j=r;if(j===i)break;[heap[i],heap[j]]=[heap[j],heap[i]];i=j;}}return n;};
  const first={...start,g:0,dirt:0,f:heuristic(start.x,start.y),parent:null,serial:serial++},best=new Map([[key(start.x,start.y),first]]);push(first);
- let visited=0;while(heap.length&&visited<32768){const n=pop();if(best.get(key(n.x,n.y))!==n)continue;visited++;if(keys.has(key(n.x,n.y))){const path=[];for(let q=n;q;q=q.parent)path.push({x:q.x,y:q.y});return path.reverse();}
-  for(const [dx,dy]of [[1,0],[0,1],[-1,0],[0,-1]]){const x=n.x+dx,y=n.y+dy;if(!passableAt(s,x,y,blockedCache))continue;const k=key(x,y),step=terrainStep(roads,n.x,n.y,x,y,boost),g=n.g+step.time,dirt=n.dirt+step.dirt,old=best.get(k);if(old&&(old.g<g-1e-9||Math.abs(old.g-g)<1e-9&&old.dirt<=dirt))continue;const q={x,y,g,dirt,parent:n,f:g+heuristic(x,y),serial:serial++};best.set(k,q);push(q);}
+ let visited=0;while(heap.length&&visited<32768){const n=pop();if(best.get(key(n.x,n.y))!==n)continue;visited++;if(keys.has(key(n.x,n.y))){const path=[];for(let q=n;q;q=q.parent)path.push({x:q.x,y:q.y});path.reverse();
+ if(nav.paths.size>=256)nav.paths.delete(nav.paths.keys().next().value);
+ nav.paths.set(cacheKey,path.map(p=>({...p})));return path;}
+  for(const [dx,dy]of PATH_DIRECTIONS){const x=n.x+dx,y=n.y+dy;if(!passableAt(s,x,y,blockedCache))continue;const k=key(x,y),step=terrainStep(roads,n.x,n.y,x,y,boost),g=n.g+step.time,dirt=n.dirt+step.dirt,old=best.get(k);if(old&&(old.g<g-1e-9||Math.abs(old.g-g)<1e-9&&old.dirt<=dirt))continue;const q={x,y,g,dirt,parent:n,f:g+heuristic(x,y),serial:serial++};best.set(k,q);push(q);}
  }return null;
 }
 
@@ -3670,10 +3682,16 @@ function roadImage(layout,x,y,w,h,done){
         if(!chunks.has(key))this._roadImages.delete(key);
       }
       const revision=this._sceneRevision||0,time=this._s.time;
+      if(this._roadStampTime!==time||this._roadStampRevision!==revision){
+        const stamp=this._s.buildings.filter(b=>G.FC.roadLevel(b)).map(b=>[b.x,b.y,G.FC.roadLevel(b)].join(':')).join('|');
+        if(stamp!==this._roadStamp){this._roadEpoch=(this._roadEpoch||0)+1;this._roadStamp=stamp;}
+        this._roadStampTime=time;this._roadStampRevision=revision;
+      }
+      const epoch=this._roadEpoch;
       for(const chunk of chunks){
         const [cx,cy]=chunk.split(',').map(Number),x=cx*span,y=cy*span;
         let layer=this._roadImages.get(chunk);
-        if(layer?.time!==time||layer?.revision!==revision){
+        if(layer?.revision!==revision||layer?.epoch!==epoch){
           const layout=new Map();
           for(let sy=Math.floor((y-halo)/CHUNK);sy<=Math.floor((y+span+halo-1)/CHUNK);sy++){
             for(let sx=Math.floor((x-halo)/CHUNK);sx<=Math.floor((x+span+halo-1)/CHUNK);sx++){
@@ -3693,7 +3711,7 @@ function roadImage(layout,x,y,w,h,done){
             layer={signature,...roadImage(layout,left,top,right-left+1,bottom-top+1,()=>{this._needsDraw=true;})};
             this._roadImages.set(chunk,layer);
           }
-          layer.time=time;layer.revision=revision;
+          layer.time=time;layer.revision=revision;layer.epoch=epoch;
         }
         if(layer.image.complete&&layer.image.naturalWidth)c.drawImage(layer.image,layer.x,layer.y,layer.width,layer.height);
         else for(const b of visible){
