@@ -541,9 +541,45 @@ function biomeAt(s,cx,cy){
   const keys=Object.keys(BIOMES);
   return keys[Math.floor(hash(s.seed,cx,cy,0)*keys.length)];
 }
+// Cache only the immutable, seed-defined layout. Cleared IDs, ownership,
+// prices and returned objects are evaluated afresh on every landInfo call.
+const naturalLayoutsByState=new WeakMap();
+function naturalLayout(s,cx,cy,biome){
+  let cache=naturalLayoutsByState.get(s);
+  if(!cache||cache.seed!==s.seed){cache={seed:s.seed,sectors:new Map()};naturalLayoutsByState.set(s,cache);}
+  const key=landKey(cx,cy),cached=cache.sectors.get(key);
+  if(cached?.biome===biome)return cached.objects;
+  const objects=[],seen=new Set();
+  const count=biome==='forest'?20:biome==='rocky'?18:biome==='industrial'?5:10;
+  let generated=0;
+  for(let i=0;i<count*5&&generated<count;i++){
+    const xx=1+Math.floor(hash(s.seed,cx,cy,i*2+2)*14),yy=1+Math.floor(hash(s.seed,cx,cy,i*2+3)*14);
+    if(cx===0&&cy===0&&xx>=2&&xx<=12&&yy>=1&&yy<=12)continue;
+    const cell=xx+','+yy;if(seen.has(cell))continue;seen.add(cell);generated++;
+    const type=biome==='rocky'?'rock':biome==='forest'?'tree':hash(s.seed,cx,cy,i+70)<.62?'tree':'flowers';
+    objects.push({id:key+':'+i,type,x:cx*CHUNK+xx,y:cy*CHUNK+yy,w:1,h:1});
+  }
+  if(biome==='shore'){
+    const pond={id:key+':pond',type:'pond',x:cx*CHUNK+10,y:cy*CHUNK+10,w:4,h:4};
+    for(let i=objects.length-1;i>=0;i--)if(overlap(objects[i],pond))objects.splice(i,1);
+    objects.push(pond);
+  }
+  objects.forEach(Object.freeze);Object.freeze(objects);
+  cache.sectors.set(key,{biome,objects});return objects;
+}
 function landInfo(s,cx,cy){
   if(!inWorld(cx,cy))return {cx,cy,key:landKey(cx,cy),owned:false,outside:true,biome:'meadow',biomeData:BIOMES.meadow,color:'#66715e',name:'За границей мира',desc:'Здесь заканчивается карта фермы.',bonus:'',cost:{coins:0,wood:0,stone:0},objects:[],area:0,resources:{wood:0,stone:0}};
-  const key=landKey(cx,cy),owned=!!s.lands[key];const biome=biomeAt(s,cx,cy);const bd=BIOMES[biome];const cleared=new Set(s.lands[key]?.cleared||[]);const objects=[];let count=biome==='forest'?20:biome==='rocky'?18:biome==='industrial'?5:10;const seen=new Set();let generated=0;for(let i=0;i<count*5&&generated<count;i++){let xx=1+Math.floor(hash(s.seed,cx,cy,i*2+2)*14),yy=1+Math.floor(hash(s.seed,cx,cy,i*2+3)*14);if(cx===0&&cy===0&&xx>=2&&xx<=12&&yy>=1&&yy<=12)continue;let nk=xx+','+yy;if(seen.has(nk))continue;seen.add(nk);generated++;let type=biome==='rocky'?'rock':biome==='forest'?'tree':hash(s.seed,cx,cy,i+70)<.62?'tree':'flowers';let natureId=key+':'+i;let o={id:natureId,type,x:cx*CHUNK+xx,y:cy*CHUNK+yy,w:1,h:1};if(!cleared.has(natureId))objects.push(o);}if(biome==='shore'){const p={id:key+':pond',type:'pond',x:cx*CHUNK+10,y:cy*CHUNK+10,w:4,h:4};for(let i=objects.length-1;i>=0;i--)if(overlap(objects[i],p))objects.splice(i,1);objects.push(p);}return {cx,cy,key,owned,biome,biomeData:bd,color:bd.color,name:bd.name,desc:bd.desc,bonus:bd.bonus,cost:landCost(s,cx,cy),objects,area:CHUNK*CHUNK,resources:{wood:objects.filter(o=>o.type==='tree').length*12,stone:objects.filter(o=>o.type==='rock').length*12}};}
+  const key=landKey(cx,cy),owned=!!s.lands[key],biome=biomeAt(s,cx,cy),bd=BIOMES[biome];
+  const cleared=new Set(s.lands[key]?.cleared||[]),objects=[];
+  let wood=0,stone=0;
+  for(const original of naturalLayout(s,cx,cy,biome)){
+    // Ponds have always remained on the map, even if their ID is in cleared.
+    if(original.type!=='pond'&&cleared.has(original.id))continue;
+    const object={...original};objects.push(object);
+    if(object.type==='tree')wood+=12;else if(object.type==='rock')stone+=12;
+  }
+  return {cx,cy,key,owned,biome,biomeData:bd,color:bd.color,name:bd.name,desc:bd.desc,bonus:bd.bonus,cost:landCost(s,cx,cy),objects,area:CHUNK*CHUNK,resources:{wood,stone}};
+}
 function frontier(s){const out=[],seen=new Set();for(const l of Object.values(s.lands))for(const [dx,dy]of [[1,0],[-1,0],[0,1],[0,-1]]){let cx=l.cx+dx,cy=l.cy+dy,key=landKey(cx,cy);if(inWorld(cx,cy)&&!s.lands[key]&&!seen.has(key)){seen.add(key);out.push(landInfo(s,cx,cy));}}return out;}
 function overlap(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
 function dimensions(type,rotation=0){let d=BUILDINGS[type];return rotation%2?{w:d.h,h:d.w}:{w:d.w,h:d.h};}
@@ -3867,7 +3903,30 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
     }
     _weather(c,s){
       const event=s.event?.type||'';if(/rain|дожд/.test(event)){
-        c.fillStyle='#689e9912';c.fillRect(0,0,this.width,this.height);for(let i=0;i<55;i++){const x=(hash(i,14,s.seed)*this.width+this._time*20)%this.width,y=(hash(i,19,s.seed)*this.height+this._time*140)%this.height;line(c,[{x,y},{x:x-3,y:y+10}],'#e0eee74f',1);}
+        c.fillStyle='#689e9912';c.fillRect(0,0,this.width,this.height);
+        if(this._rainSeed!==s.seed||!this._rainPattern){
+          this._rainSeed=s.seed;
+          this._rainPattern=Array.from({length:55},(_,i)=>({x:hash(i,14,s.seed),y:hash(i,19,s.seed)}));
+        }
+        c.strokeStyle='#e0eee74f';c.lineWidth=1;c.lineCap='round';c.lineJoin='round';
+        // Scaling can make Canvas choose different stroke rasterizers for a
+        // compound path. Keep individual strokes in that case (e.g. Retina).
+        const transform=c.getTransform();
+        const batch=transform.a===1&&transform.b===0&&transform.c===0&&transform.d===1;
+        const group=[];c.beginPath();
+        for(const pattern of this._rainPattern){
+          const x=(pattern.x*this.width+this._time*20)%this.width,y=(pattern.y*this.height+this._time*140)%this.height;
+          // Include round caps and a conservative antialiasing margin. Only
+          // disjoint strokes share a path; overlapping strokes keep their
+          // original source-over order and repeated alpha compositing.
+          if(!batch){c.beginPath();c.moveTo(x,y);c.lineTo(x-3,y+10);c.stroke();continue;}
+          const left=x-5,top=y-2,right=x+2,bottom=y+12;
+          if(group.some(b=>left<=b.right&&right>=b.left&&top<=b.bottom&&bottom>=b.top)){
+            c.stroke();c.beginPath();group.length=0;
+          }
+          c.moveTo(x,y);c.lineTo(x-3,y+10);group.push({left,top,right,bottom});
+        }
+        if(group.length)c.stroke();
       }
       if(/pest|вред/.test(event)){
         const p=this._screen(pt(5,7));for(let i=0;i<5;i++){const t=this._time*1.5+i*1.2;ellipse(c,p.x+Math.sin(t)*40,p.y+Math.cos(t*1.2)*13,1.4,1,'#7d6a2caa');}
