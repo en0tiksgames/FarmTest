@@ -1722,6 +1722,7 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
     }
     sprite(x,y,z,w,h,draw){const q=this.world([x,y,z]),p=pt(...q),sum=q[0]+q[1];this.faces.push({p:[{x:p.x-w,y:p.y-h},{x:p.x+w,y:p.y-h},{x:p.x+w,y:p.y+5},{x:p.x-w,y:p.y+5}],color:null,edge:null,area:1,minX:p.x-w,maxX:p.x+w,minY:p.y-h,maxY:p.y+5,avg:z,v:[[-w,-h],[w,-h],[w,5],[-w,5]].map(([dx,dy])=>[q[0]+dx/58,q[1]-dx/58,q[2]-dy]),depth:(X,Y)=>(sum-Y/15)/2,draw:()=>{this.c.save();this.c.translate(p.x,p.y);draw();this.c.restore();}});}
     flush(){
+      if(this.preparedDraw){this.preparedDraw();return;}
       if(this.retained&&this._displayList){this._paintDisplayList();return;}
       // Cache only the layer calculation. Current drawing callbacks still run
       // every frame, so smoke, animals and other animated details stay live.
@@ -1732,10 +1733,11 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
       const insert=(node,f)=>{const ds=f.v.map(v=>node.n.reduce((s,x,i)=>s+x*v[i],0)-node.d),pos=ds.some(d=>d>eps),neg=ds.some(d=>d<-eps);if(!pos&&!neg){node.same.push(f);return;}if(pos&&neg){const front=[],back=[];for(let i=0;i<f.v.length;i++){const a=f.v[i],b=f.v[(i+1)%f.v.length],da=ds[i],db=ds[(i+1)%ds.length];if(da>=-eps)front.push(a);if(da<=eps)back.push(a);if((da>eps&&db<-eps)||(da<-eps&&db>eps)){const t=da/(da-db),q=a.map((v,k)=>v+(b[k]-v)*t);front.push(q);back.push(q);}}for(const [key,v]of [['front',front],['back',back]])if(v.length>=3){const child={...f,v,split:true};if(node[key])insert(node[key],child);else node[key]=make(child);}}else{const key=pos?'front':'back';if(node[key])insert(node[key],f);else node[key]=make(f);}};
       let root=null;if(!cached)for(const f of this.faces){if(!f.v||f.v.length<3)continue;if(root)insert(root,f);else root=make(f);}
       const draw=f=>{const p=f.v.map(v=>pt(...v));if(f.draw){this.c.save();this.c.beginPath();this.c.moveTo(p[0].x,p[0].y);for(const q of p.slice(1))this.c.lineTo(q.x,q.y);this.c.closePath();this.c.clip();f.draw();this.c.restore();}else if(f.split){if(/^#[0-9a-f]{6}$/i.test(f.color||''))polygon(this.c,p,f.color,f.color,.08);this.c.save();this.c.beginPath();this.c.moveTo(p[0].x,p[0].y);for(const q of p.slice(1))this.c.lineTo(q.x,q.y);this.c.closePath();this.c.clip();polygon(this.c,f.p,f.color,f.edge,f.width);this.c.restore();}else polygon(this.c,p,f.color,f.edge,f.width);};
-      if(cached){meshLayerCache.delete(key);meshLayerCache.set(key,cached);if(this.retained){this._retain(cached,draw);this._paintDisplayList();}else for(const part of cached)draw({...this.faces[part.index],v:part.v,split:part.split});return;}
+      if(cached){if(this.prepareVector){const plan=cached.map(part=>({...this.faces[part.index],v:part.v,split:part.split}));this.preparedDraw=()=>{for(const f of plan)draw(f);};}meshLayerCache.delete(key);meshLayerCache.set(key,cached);if(this.retained){this._retain(cached,draw);this._paintDisplayList();}else for(const part of cached)draw({...this.faces[part.index],v:part.v,split:part.split});return;}
       const ordered=[];
       const visit=node=>{if(!node)return;const near=node.n[0]+node.n[1]+node.n[2]*30>0;visit(near?node.back:node.front);for(const f of node.same){ordered.push({index:f.cacheIndex,v:f.v,split:!!f.split});draw(f);}visit(near?node.front:node.back);};visit(root);
       if(key.length<180000&&ordered.length<12000){if(meshLayerCache.size>=48)meshLayerCache.delete(meshLayerCache.keys().next().value);meshLayerCache.set(key,ordered);}
+      if(this.prepareVector){const plan=ordered.map(part=>({...this.faces[part.index],v:part.v,split:part.split}));this.preparedDraw=()=>{for(const f of plan)draw(f);};}
       if(this.retained)this._retain(ordered,draw);
     }
     _retain(ordered,draw){
@@ -2289,11 +2291,19 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
       }
     }
     _plot(c,b){
-      const lev=b.level||1,m=new BuildingMesh(c,b,1,1),plant=b.plant;
+      const lev=b.level||1,plant=b.plant;
+      this._preparedPlots ||= new WeakMap();
+      const stamp=[b.x,b.y,b.rotation||0,Number(lev>1),Number(!!plant?.watered)].join(':');
+      let entry=this._preparedPlots.get(b),m;
+      if(!entry||entry.stamp!==stamp){
+        m=new BuildingMesh(c,b,1,1);m.prepareVector=true;
+        this._preparedPlots.set(b,{stamp,mesh:m});
       m.box(.035,.035,.93,.93,0,.65,['#876341','#705333','#5c462f']);
       m.box(.085,.085,.83,.83,.65,.85,[plant?.watered?'#59402e':'#715035','#62482f','#59402e']);
       for(let k=0;k<4;k++)m.box(.14+k*.19,.13,.025,.74,.85,.93,['#4c3829','#503b2b','#503b2b']);
       if(lev>1){m.box(.075,.07,.025,.86,1,1.8,['#7e8580','#656f67','#59635c']);for(let k=0;k<3;k++)m.box(.09,.22+k*.28,.75,.018,.95,1.3,['#4b574a','#4b574a','#4b574a']);}
+      }else m=entry.mesh;
+      m.c=c;
       for(let k=0;k<14;k++){const q=m.world([.12+hash(k,b.x,71)*.76,.12+hash(k,b.y,93)*.76,1]);const p=pt(...q);ellipse(c,p.x,p.y,.5,.3,k%3?'#47362866':'#c6a78255');}
       m.flush();this._plotWeeds(c,b);if(!plant)return;
       const crop=plant.crop||plant.cropId||'wheat',start=Number(plant.start)||0,end=Number(plant.end)||start+20,
