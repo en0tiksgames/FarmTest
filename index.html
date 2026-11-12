@@ -396,7 +396,14 @@ html body .panel-body .section-title{margin-top:12px;margin-bottom:12px}
 })();
 </script>
 <style>
-body:has(#panel:not(.mobile-hidden),.modal-root:not(.hide)) #toasts{display:none}
+
+</style>
+<style>
+.action-feedback{margin:10px 0;padding:8px 0;font-size:12px;line-height:1.45;color:var(--wood-text,#254b3b);overflow-wrap:anywhere;white-space:normal}
+.action-feedback.is-error{color:#872b1c;font-weight:600}
+html[data-theme="dark"] .action-feedback.is-error{color:#ffe2bb}
+.hud.level-up .level-medal{outline:3px solid #f9d168;outline-offset:3px;box-shadow:0 0 14px #e9bd45}
+@media(prefers-reduced-motion:no-preference){.hud.level-up .level-medal{animation:levelGlow .9s ease-in-out 4 alternate}@keyframes levelGlow{to{outline-color:#fff2b2;box-shadow:0 0 22px #ffe49a}}}
 </style>
 </head>
 <body>
@@ -420,7 +427,7 @@ body:has(#panel:not(.mobile-hidden),.modal-root:not(.hide)) #toasts{display:none
     <aside id="panel" class="panel mobile-hidden" aria-label="Управление фермой"><div id="panelHead" class="panel-head"></div><div id="panelBody" class="panel-body"></div></aside>
   </main>
 </div>
-<div id="modalRoot" class="modal-root hide"></div><div class="toast-container" id="toasts" role="status" aria-live="polite"></div>
+<div id="modalRoot" class="modal-root hide"></div>
 <div id="networkGate" class="modal-root hide" style="z-index:95" role="alert"><div class="pause-card"><h2>Связь с фермой</h2><p id="networkMessage" class="note"></p><button class="btn full topgap" data-action="networkReconnect">Переподключиться</button></div></div>
 <input type="file" id="importFile" accept="application/json,.json" hidden>
 <div id="loading" class="loading-screen"><div class="loading-sprout">🌱</div><h1>Луговая долина</h1><p class="small muted">Готовим землю для вашей истории…</p></div>
@@ -4197,7 +4204,7 @@ if(b){out+=sectionTitle(buildingTitle(b))+'<div class="mini-grid">'+stat(fmt(FC.
 out+=note('Снимок обновлён: '+new Date(visitProfile.updatedAt).toLocaleString('ru-RU'));
 out+=sectionTitle('Осмотреть участок')+'<div class="land-visit-list">'+Object.values(s.lands).map(l=>btn(h(l.cx)+' / '+h(l.cy),'visitLand',{cx:l.cx,cy:l.cy},'ghost sm')).join('')+'</div>';
 return out+'<div class="stack topgap">'+btn('Вернуться на свою ферму','leaveVisit',{},'secondary full')+btn('К топу ферм','leaderboard',{},'ghost full')+'</div>';}
-async function enterVisit(id){const request=++visitRequest;try{toast('Загружаем ферму…');const data=await FarmSocial.farm(id);if(FarmNet.enabled)try{data.raid=await FarmNet.preview(id);}catch(e){data.raid={allowed:false,reason:e.message};}if(request!==visitRequest)return;if(!visitState)visitContext={camera:{...world.camera},selectedId,selectedLand:{...selectedLand}};cancelPlacement();if(modalOpen)closeModal();visitProfile=data;visitState=data.snapshot;visitSelectedId=null;document.body.classList.add('visiting');world.selectedId=null;world.hover=null;world.refresh();world.home();$('visitBanner').classList.remove('hide');$('visitName').textContent=visitState.farmName;section='visit';previousHud='';showPanel();render(true);updateLandTitle();}catch(e){if(request===visitRequest)toast(e.message,true);}}
+async function enterVisit(id){const request=++visitRequest;try{reportAction('Загружаем ферму…');const data=await FarmSocial.farm(id);if(FarmNet.enabled)try{data.raid=await FarmNet.preview(id);}catch(e){data.raid={allowed:false,reason:e.message};}if(request!==visitRequest)return;if(!visitState)visitContext={camera:{...world.camera},selectedId,selectedLand:{...selectedLand}};cancelPlacement();if(modalOpen)closeModal();visitProfile=data;visitState=data.snapshot;visitSelectedId=null;document.body.classList.add('visiting');world.selectedId=null;world.hover=null;world.refresh();world.home();$('visitBanner').classList.remove('hide');$('visitName').textContent=visitState.farmName;section='visit';previousHud='';showPanel();render(true);updateLandTitle();}catch(e){if(request===visitRequest)reportAction(e.message,true);}}
 function leaveVisit(){visitRequest++;if(visitState){visitState=null;visitProfile=null;document.body.classList.remove('visiting');visitSelectedId=null;world.refresh();world.camera={...visitContext.camera};selectedId=visitContext.selectedId;selectedLand={...visitContext.selectedLand};world.selectedId=selectedId;visitContext=null;world.hover=null;$('visitBanner').classList.add('hide');previousHud='';previousFarmName='';}section='farm';showPanel();render(true);updateLandTitle();}
 
 const neighborsState={data:null,loading:false,error:''};
@@ -4228,10 +4235,10 @@ async function loadNeighbors(){
  catch(e){if(request===neighborsRequest)neighborsState.error=e.message;}
  finally{if(request===neighborsRequest){neighborsState.loading=false;if(section==='neighbors')renderPanel();}}
 }
-async function previewRaid(id){const quote=await FarmNet.preview(id);if(!quote.allowed){toast(quote.reason,true);if(visitProfile?.id===id){visitProfile.raid=quote;renderPanel();}return;}
+async function previewRaid(id){const quote=await FarmNet.preview(id);if(!quote.allowed){reportAction(quote.reason,true);if(visitProfile?.id===id){visitProfile.raid=quote;renderPanel();}return;}
  openModal('Забрать добычу?',note('Золото: '+fmt(quote.coins)+' · Грядок: '+quote.plots.length)+goods(quote.items)+note('После набега защита: '+secs(quote.rules.protectionMs/1000)+'. Повторная кража у этого соседа: через '+secs(quote.rules.pairCooldownMs/1000)+'.'),'Забрать',()=>{void executeRaid(id,quote.victimRevision);});
 }
-async function executeRaid(id,victimRevision){try{const loot=await FarmNet.raid(id,victimRevision);if(visitProfile?.id===id){const data=await FarmSocial.farm(id);data.raid=await FarmNet.preview(id);visitProfile=data;visitState=data.snapshot;world.refresh();render(true);}openModal('Добыча получена',note('Золото: '+fmt(loot.coins)+' · Грядок: '+loot.plots)+goods(loot.items));neighborsState.data=null;}catch(e){toast(e.message,true);}}
+async function executeRaid(id,victimRevision){try{const loot=await FarmNet.raid(id,victimRevision);if(visitProfile?.id===id){const data=await FarmSocial.farm(id);data.raid=await FarmNet.preview(id);visitProfile=data;visitState=data.snapshot;world.refresh();render(true);}openModal('Добыча получена',note('Золото: '+fmt(loot.coins)+' · Грядок: '+loot.plots)+goods(loot.items));neighborsState.data=null;}catch(e){reportAction(e.message,true);}}
 function applyNetworkState(next){state=next;lastLevel=next.level;world?.refresh();if(selectedId&&!next.buildings.some(b=>b.id===selectedId))selectedId=null;previousHud='';previousFarmName='';render(true);updateLandTitle();}
 window.addEventListener('farm-network',()=>{const gate=$('networkGate'),blocked=FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy);gate.classList.toggle('hide',!blocked);$('networkMessage').textContent=FarmNet.error||'Подключаемся к серверу…';const retry=gate.querySelector('button');retry.disabled=FarmNet.busy;retry.textContent=FarmNet.sessionConflict?'Повторить':'Переподключиться';});
 
@@ -4251,35 +4258,71 @@ function applyTheme(){
   if(world&&world.setTheme)world.setTheme(theme);
 }
 function chirp(ok=true){if(!sound)return;try{audioContext=audioContext||new(window.AudioContext||window.webkitAudioContext)();const o=audioContext.createOscillator(),g=audioContext.createGain();o.type='sine';o.frequency.setValueAtTime(ok?580:190,audioContext.currentTime);o.frequency.exponentialRampToValueAtTime(ok?850:140,audioContext.currentTime+.11);g.gain.setValueAtTime(.025,audioContext.currentTime);g.gain.exponentialRampToValueAtTime(.0001,audioContext.currentTime+.16);o.connect(g);g.connect(audioContext.destination);o.start();o.stop(audioContext.currentTime+.17);}catch(e){}}
-function toast(msg,error=false){if(!msg||modalOpen||!$('panel').classList.contains('mobile-hidden')||!$('networkGate').classList.contains('hide'))return;const d=document.createElement('div');d.className='toast'+(error?' error':'');d.textContent=msg;$('toasts').appendChild(d);while($('toasts').children.length>(innerWidth<=980?1:3))$('toasts').firstChild.remove();setTimeout(()=>{d.classList.add('exit');setTimeout(()=>d.remove(),300);},error?5400:3300);}
+// Action feedback belongs to the relevant control, never to a floating layer.
+let feedbackOrigin=null,actionFeedback=null,levelNoticeTimer=null;
+function feedbackScope(){return modalOpen?'modal:'+($('modalRoot').querySelector('h2')?.textContent||''):placement?'placement':section+':'+(selectedId||'');}
+function clearActionFeedback(){actionFeedback=null;document.querySelectorAll('[data-action-feedback]').forEach(n=>n.remove());}
+function feedbackDescriptor(control){return control?.dataset?{action:control.dataset.action||'',p:control.dataset.p||'',change:control.dataset.change||'',id:control.dataset.id||'',key:control.dataset.key||''}:null;}
+function restoreActionFeedback(){
+ if(!actionFeedback)return;
+ if(actionFeedback.scope!==feedbackScope()){clearActionFeedback();return;}
+ const root=modalOpen?$('modalRoot').querySelector('.modal-body'):placement?$('placementBar'):$('panelBody');
+ if(!root)return;
+ if(root.querySelector('[data-action-feedback]')?.textContent===actionFeedback.msg)return;
+ root.querySelectorAll('[data-action-feedback]').forEach(n=>n.remove());
+ const node=document.createElement('p');node.dataset.actionFeedback='';node.className='action-feedback'+(actionFeedback.error?' is-error':'');node.setAttribute('role',actionFeedback.error?'alert':'status');node.textContent=actionFeedback.msg;
+ const d=actionFeedback.control;
+ const control=d&&[...root.querySelectorAll('[data-action],[data-change]')].find(n=>(n.dataset.action||'')===d.action&&(n.dataset.p||'')===d.p&&(n.dataset.change||'')===d.change&&(n.dataset.id||'')===d.id&&(n.dataset.key||'')===d.key);
+ if(control){const block=control.closest('.row,.toggle-line')||control;block.after(node);}else root.prepend(node);
+}
+function setActionFeedback(msg,error=false,origin=feedbackOrigin){
+ if(!msg)return;
+ clearActionFeedback();
+ // On the map, failed placement is explained by the existing placement bar.
+ // Other failures open the relevant side panel instead of disappearing.
+ if(!modalOpen&&!placement&&$('panel').classList.contains('mobile-hidden')){$('panel').classList.remove('mobile-hidden');$('panel').inert=false;renderPanel();}
+ actionFeedback={msg:String(msg),error,scope:feedbackScope(),control:feedbackDescriptor(origin)};
+ restoreActionFeedback();
+}
+function reportAction(msg,error=false){if(error)setActionFeedback(msg,true);}
+function markLevelUp(){
+ clearTimeout(levelNoticeTimer);$('hud').classList.add('level-up');
+ levelNoticeTimer=setTimeout(()=>$('hud').classList.remove('level-up'),3500);
+}
+function updateSettingsSaveStatus(){
+ const status=$('settingsSaveStatus');if(!status)return;
+ status.textContent=saveMessage||'Автосохранение включено.';
+ status.classList.toggle('danger',saveState==='error'||saveState==='warning');
+}
+
 function scheduleSave(){clearTimeout(saveTimer);saveTimer=setTimeout(()=>FarmSaves.save(state),120);}
 function perform(action,p={},quiet=false){if(!state)return;
   if(FarmNet.configured&&!FarmNet.gateRoadsSupported&&(action==='build'||action==='move')){
     const type=action==='move'?FC.buildingById(state,p.id)?.type:p.type;
     const shared=state.buildings.some(b=>b.x===p.x&&b.y===p.y&&FC.shareBuildingCell(type,b.type));
-    if(shared){toast('Для дорожки под воротами сначала обновите Worker.',true);return {ok:false};}
+    if(shared){reportAction('Для дорожки под воротами сначала обновите Worker.',true);return {ok:false};}
   }
   if(FarmNet.configured&&!FarmNet.roadsSupported&&((action==='build'&&p.type==='path_dirt')||
     (action==='upgrade'&&FC.roadLevel(FC.buildingById(state,p.id))))){
-    toast('Для новых дорожек требуется обновить сервер фермы.',true);
+    reportAction('Для новых дорожек требуется обновить сервер фермы.',true);
     return {ok:false};
   }
-if(FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy)){toast('Дождитесь подтверждения сервера.',true);return {ok:false};}if(visitState){toast('Вы осматриваете чужую ферму.',true);return {ok:false};}let r;try{r=FC.act(state,action,p);}catch(e){console.error(e);r={ok:false,msg:'Действие не выполнено: '+e.message};}if(r.ok){if(!quiet)toast(r.msg);chirp();if(['build','move','demolish','clear','land','hire','fire'].includes(action))world.refresh?.();scheduleSave();}else{toast(r.msg||'Действие сейчас недоступно.',true);chirp(false);}render(true);return r;}
-function showPanel(){ $('toasts').replaceChildren();$('panel').classList.remove('mobile-hidden');$('panel').inert=false; }
-function hidePanel(){if($('panel').contains(document.activeElement))document.activeElement.blur();$('panel').classList.add('mobile-hidden');if(innerWidth<981)$('panel').inert=true; }
-function setSection(value){section=value;selectedNature=null;selectedId=null;if(world)world.selectedId=null;if(value!=='build')cancelPlacement();showPanel();render(true);}
-function cancelPlacement(){placement=null;if(world)world.setPlacement(null);$('placementBar').classList.add('hide');}
-function startPlacement(type,moveId){const b=moveId?state.buildings.find(b=>b.id===moveId):null;placement={type,moveId:moveId||null,rotation:b?.rotation||0};world.setPlacement(placement);renderPlacement();if(innerWidth<981)hidePanel();toast(moveId?'Выберите новое место. Очереди и содержимое сохранятся.':'Нажмите на свободную землю для размещения.');}
-function renderPlacement(){if(!placement)return;const d=FC.BUILDINGS[placement.type];$('placementBar').classList.remove('hide');$('placementBar').innerHTML='<div class="row spread"><div><b>'+(placement.moveId?'Перенос: ':'Размещение: ')+h(d.name)+'</b><div class="tiny muted" style="margin-top:4px">Зелёный контур — место доступно'+(placement.type==='gate'?' · Открытие '+gateOpeningArrows[placement.rotation]:'')+(!placement.moveId?' · Цена: '+fmt(FC.buildPreview(state,placement.type).cost.coins||0)+' монет':'')+(!placement.moveId&&!d.unique?' · Можно ставить подряд':'')+'</div></div><div class="row gap6"><button data-action="rotatePlacement" title="Поворот · R">↻ '+(placement.rotation*90)+'°</button><button data-action="cancelPlacement" title="Отмена · Escape">✕</button></div></div>';}
-function openModal(title,body,confirmLabel,callback,kind=''){$('toasts').replaceChildren();lastFrame=performance.now();modalOpen=true;modalCallback=callback||null;$('modalRoot').classList.remove('hide');$('modalRoot').innerHTML='<section class="modal" role="dialog" aria-modal="true" aria-label="'+h(title)+'"><div class="modal-head"><h2>'+h(title)+'</h2><button class="icon-btn" data-action="closeModal" aria-label="Закрыть">'+ico('close',20)+'</button></div><div class="modal-body">'+body+'</div><div class="modal-footer">'+btn(confirmLabel?'Отмена':'Понятно','closeModal',{},'ghost')+(confirmLabel?btn(h(confirmLabel),'confirmModal',{},kind):'')+'</div></section>';setTimeout(()=>$('modalRoot').querySelector('button')?.focus(),0);}
-function closeModal(){lastFrame=performance.now();modalOpen=false;modalCallback=null;$('modalRoot').classList.add('hide');$('modalRoot').innerHTML='';}
+if(FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy)){reportAction('Дождитесь подтверждения сервера.',true);return {ok:false};}if(visitState){reportAction('Вы осматриваете чужую ферму.',true);return {ok:false};}let r;try{r=FC.act(state,action,p);}catch(e){console.error(e);r={ok:false,msg:'Действие не выполнено: '+e.message};}if(r.ok){clearActionFeedback();chirp();if(['build','move','demolish','clear','land','hire','fire'].includes(action))world.refresh?.();scheduleSave();}else{reportAction(r.msg||'Действие сейчас недоступно.',true);chirp(false);}render(true);return r;}
+function showPanel(){ clearActionFeedback();$('panel').classList.remove('mobile-hidden');$('panel').inert=false; }
+function hidePanel(){clearActionFeedback();if($('panel').contains(document.activeElement))document.activeElement.blur();$('panel').classList.add('mobile-hidden');if(innerWidth<981)$('panel').inert=true; }
+function setSection(value){clearActionFeedback();section=value;selectedNature=null;selectedId=null;if(world)world.selectedId=null;if(value!=='build')cancelPlacement();showPanel();render(true);}
+function cancelPlacement(){clearActionFeedback();placement=null;if(world)world.setPlacement(null);$('placementBar').classList.add('hide');}
+function startPlacement(type,moveId){clearActionFeedback();const b=moveId?state.buildings.find(b=>b.id===moveId):null;placement={type,moveId:moveId||null,rotation:b?.rotation||0};world.setPlacement(placement);renderPlacement();if(innerWidth<981)hidePanel();reportAction(moveId?'Выберите новое место. Очереди и содержимое сохранятся.':'Нажмите на свободную землю для размещения.');}
+function renderPlacement(){if(!placement)return;const d=FC.BUILDINGS[placement.type];$('placementBar').classList.remove('hide');$('placementBar').innerHTML='<div class="row spread"><div><b>'+(placement.moveId?'Перенос: ':'Размещение: ')+h(d.name)+'</b><div class="tiny muted" style="margin-top:4px">Выберите клетку и нажмите для подтверждения. Зелёный контур — место доступно'+(placement.type==='gate'?' · Открытие '+gateOpeningArrows[placement.rotation]:'')+(!placement.moveId?' · Цена: '+fmt(FC.buildPreview(state,placement.type).cost.coins||0)+' монет':'')+(!placement.moveId&&!d.unique?' · Можно ставить подряд':'')+'</div></div><div class="row gap6"><button data-action="rotatePlacement" title="Поворот · R">↻ '+(placement.rotation*90)+'°</button><button data-action="cancelPlacement" title="Отмена · Escape">✕</button></div></div>';}
+function openModal(title,body,confirmLabel,callback,kind=''){clearActionFeedback();lastFrame=performance.now();modalOpen=true;modalCallback=callback||null;$('modalRoot').classList.remove('hide');$('modalRoot').innerHTML='<section class="modal" role="dialog" aria-modal="true" aria-label="'+h(title)+'"><div class="modal-head"><h2>'+h(title)+'</h2><button class="icon-btn" data-action="closeModal" aria-label="Закрыть">'+ico('close',20)+'</button></div><div class="modal-body">'+body+'</div><div class="modal-footer">'+btn(confirmLabel?'Отмена':'Понятно','closeModal',{},'ghost')+(confirmLabel?btn(h(confirmLabel),'confirmModal',{},kind):'')+'</div></section>';setTimeout(()=>$('modalRoot').querySelector('button')?.focus(),0);}
+function closeModal(){clearActionFeedback();lastFrame=performance.now();modalOpen=false;modalCallback=null;$('modalRoot').classList.add('hide');$('modalRoot').innerHTML='';}
 function buildingTitle(b){if(FC.fenceLevel(b))return (b.type==='gate'?'Ворота':'Забор')+' · '+FC.FENCE_LEVELS[FC.fenceLevel(b)-1];if(FC.roadLevel(b))return 'Дорожка · '+FC.ROAD_LEVELS[FC.roadLevel(b)-1].name;if(b.type==='plot'&&b.plant)return FC.CROPS[b.plant.crop]?.name||FC.BUILDINGS[b.type].name;return FC.BUILDINGS[b.type]?.name||'Постройка';}
-function onPick(hit){
+function onPick(hit){feedbackOrigin=null;clearActionFeedback();
   if(FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy))return;
   if(!state||modalOpen)return;
   if(visitState){visitSelectedId=hit?.buildingId||null;world.selectedId=visitSelectedId;section='visit';showPanel();render(true);return;}
-  if(hit?.outside){toast('Вы достигли границы мира ('+(FC.WORLD_RADIUS*2+1)+' × '+(FC.WORLD_RADIUS*2+1)+' участков).');return;}
-  if(placement){const p=placement;const data={type:p.type,x:hit.x,y:hit.y,rotation:p.rotation};if(p.moveId)data.id=p.moveId;const r=perform(p.moveId?'move':'build',data);if(r?.ok){selectedId=p.moveId||r.id||state.buildings.at(-1)?.id;world.selectedId=selectedId;const d=FC.BUILDINGS[p.type],repeat=!p.moveId&&!d.unique&&FC.buildPreview(state,p.type).available;if(repeat){selectedId=null;world.selectedId=null;world.setPlacement(placement);renderPlacement();}else{cancelPlacement();section='farm';showPanel();if(!p.moveId&&!d.unique)toast('Построено. '+FC.buildPreview(state,p.type).reason);}render(true);}return;}
+  if(hit?.outside){reportAction('Вы достигли границы мира ('+(FC.WORLD_RADIUS*2+1)+' × '+(FC.WORLD_RADIUS*2+1)+' участков).',true);return;}
+  if(placement){const p=placement;const data={type:p.type,x:hit.x,y:hit.y,rotation:p.rotation};if(p.moveId)data.id=p.moveId;const r=perform(p.moveId?'move':'build',data);if(r?.ok){selectedId=p.moveId||r.id||state.buildings.at(-1)?.id;world.selectedId=selectedId;const d=FC.BUILDINGS[p.type],repeat=!p.moveId&&!d.unique&&FC.buildPreview(state,p.type).available;if(repeat){selectedId=null;world.selectedId=null;world.setPlacement(placement);renderPlacement();}else{cancelPlacement();section='farm';showPanel();if(!p.moveId&&!d.unique)reportAction('Построено. '+FC.buildPreview(state,p.type).reason);}render(true);}return;}
   selectedLand={cx:Math.floor(hit.x/FC.CHUNK),cy:Math.floor(hit.y/FC.CHUNK)};
   if(!hit.owned){selectedId=null;selectedNature=null;section='map';showPanel();render(true);return;}
   if(hit.buildingId){selectedId=hit.buildingId;selectedNature=null;world.selectedId=selectedId;section='farm';showPanel();render(true);return;}
@@ -4315,7 +4358,7 @@ function render(force=false,refreshHud=true){
   state.paused=false; // Retain the legacy save field, with manual pause removed.
   if(autoCompleteFirstSteps(state))scheduleSave();
   updateFarmName();if(refreshHud)updateHUD();
-  if(state.level>lastLevel){toast('Новый уровень '+state.level+'! Открытия доступны в «Развитии».');lastLevel=state.level;}
+  if(state.level>lastLevel){markLevelUp();lastLevel=state.level;}
   updateMarkup($('arrangeBtn'),ico('move',18)+(arranging?'Обустройство включено':'Обустройство'));$('arrangeBtn').classList.toggle('active',arranging);
   if(force){$('nav').innerHTML=navs.map(([id,label])=>'<button class="nav-btn '+(section===id||section==='inventory'&&id==='farm'?'active':'')+'" data-action="nav" data-p="'+h(JSON.stringify({section:id}))+'" title="'+h(label)+'"'+(visitState&&id!=='farm'?' disabled':'')+'>'+ico(id)+'<span>'+(id==='map'?'Карта<br>земель':label)+'</span></button>').join('')+'<div class="rail-bottom"><button class="icon-btn" data-action="save" aria-label="Сохранить" title="Сохранить сейчас">'+ico('save',19)+'</button><span id="saveDot" class="save-dot '+(saveState==='error'?'bad':'')+'" title="'+h(saveMessage)+'"></span><span class="rail-version">ДОЛИНА · 1.0</span></div>';}
   if(!force&&(performance.now()-lastPointer<350||['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName)))return;
@@ -4340,6 +4383,7 @@ function renderPanel(){
   const sc=$('panelBody').scrollTop;
   if(previousPanelHead!==head){$('panelHead').innerHTML=head;previousPanelHead=head;}
   if(previousPanelBody!==body){$('panelBody').innerHTML=body;$('panelBody').scrollTop=sc;previousPanelBody=body;}
+  restoreActionFeedback();
 }
 function renderJournal(){
   const steps=['Посадите пшеницу на грядке','Полейте посаженную пшеницу','Соберите первый урожай','Выполните первый заказ'],t=state.tutorial||0;
@@ -4407,8 +4451,8 @@ const marketGroups=()=>{
 };
 function marketSetLimits(id,selection,keep){
  const group=selection.startsWith('group:')?marketGroups().find(g=>g.id===selection.slice(6)):null,items=group?group.items:[selection],b=state.buildings.find(b=>b.id===id),n=Number(keep);
- if(b?.type!=='market'||keep!==null&&(keep===''||!Number.isSafeInteger(n)||n<0||n>FC.SAFE)||!items.length||items.some(k=>!FC.ITEMS[k]||FC.ITEMS[k].price<=0)){toast('Выберите товар или группу и целый неотрицательный запас.',true);return;}
- for(const item of items)FC.act(state,'marketLimit',{id,item,keep:keep===null?null:n});scheduleSave();render(true);toast(keep===null?'Лимиты убраны.':group?'Для каждого товара группы установлен запас '+fmt(n)+'.':'Лимит сохранён.');
+ if(b?.type!=='market'||keep!==null&&(keep===''||!Number.isSafeInteger(n)||n<0||n>FC.SAFE)||!items.length||items.some(k=>!FC.ITEMS[k]||FC.ITEMS[k].price<=0)){reportAction('Выберите товар или группу и целый неотрицательный запас.',true);return;}
+ for(const item of items)FC.act(state,'marketLimit',{id,item,keep:keep===null?null:n});scheduleSave();render(true);reportAction(keep===null?'Лимиты убраны.':group?'Для каждого товара группы установлен запас '+fmt(n)+'.':'Лимит сохранён.');
 }
 function renderMarket(b){const st=FC.marketStats(b),limits=b.settings.limits||{},draft=marketEditors.get(b.id)||{item:Object.keys(limits)[0]||'group:crops',keep:limits[Object.keys(limits)[0]]??20},groups=marketGroups(),cargo=state.workers.filter(w=>w.marketId===b.id).reduce((n,w)=>n+Object.values(w.cargo||{}).reduce((a,n)=>a+n,0),0);
  let out='<div class="mini-grid topgap">'+stat(Math.round(st.price*100)+'%','рыночной цены')+stat(secs(st.interval),'между продажами')+stat(fmt(st.batch),'товаров за продажу')+stat(fmt(Object.values(b.output).reduce((a,n)=>a+n,0))+' / '+fmt(st.capacity),'на прилавке')+'</div>'+note('В пути: '+cargo+'. Помощник забирает излишки со склада и доставляет на рынок. Деньги начисляются после продажи.')+goods(b.output)+(Object.keys(b.output).length?'<p class="note market-countdown">Следующая продажа: '+remaining(b.marketNextAt||state.time+st.interval)+'</p>':'')+'<div class="toggle-line topgap"><div><b>Доставка излишков</b></div><button class="toggle '+(b.settings.auto?'on':'')+'" data-action="setting" data-p="'+h(JSON.stringify({id:b.id,key:'auto',value:!b.settings.auto}))+'" aria-label="Доставка на рынок" aria-pressed="'+!!b.settings.auto+'"></button></div>';
@@ -4577,7 +4621,7 @@ function showBuildingCard(type){
   openModal(d.name,body+'<div class="topgap">'+note('Уже построено: '+quote.count+' · цена ×'+quote.multiplier.toFixed(2)+(quote.limit!==undefined?' · лимит '+quote.limit+'. Следующий домик: ур. '+quote.nextLevel:'')+(quote.reason?' · '+quote.reason:''))+'</div>',quote.available?'Выбрать место':'',()=>startPlacement(type));
 }
 function showLandPreview(cx,cy){
-  if(!FC.inWorld(cx,cy)){toast('Этот сектор за пределами карты.',true);return;}
+  if(!FC.inWorld(cx,cy)){reportAction('Этот сектор за пределами карты.',true);return;}
   const l=FC.landInfo(state,cx,cy);
   openModal('Новая земля: '+l.name,'<p class="small muted">'+h(l.desc)+'</p><div class="card soft topgap"><b>'+l.area+' клеток для вашей фермы</b><p class="note topgap">'+h(l.bonus)+'</p><div class="cost-line">'+cost(l.cost)+'</div><p class="note">На участке: '+fmt(l.resources.wood)+' дерева и '+fmt(l.resources.stone)+' камня. Природные препятствия можно расчищать; естественный водоём сохраняется.</p></div><p class="note topgap">После покупки появятся следующие соседние земли. Цена следующих расширений постепенно растёт.</p>','Купить участок',()=>{const r=perform('land',{cx,cy});if(r?.ok){selectedLand={cx,cy};world.focus(cx*16+8,cy*16+8);render(true);}});
 }
@@ -4611,24 +4655,24 @@ async function handleAdminAction(action){
  try{
  if(action==='balanceExport')FarmBalance.exportFile();
  if(action==='balanceImport')$('balanceImportFile').click();
- if(action==='balanceRefresh'){openModal('Сбросить черновик?',note('Будет загружен текущий общий баланс. Неопубликованные изменения будут отменены.'),'Сбросить',()=>{void FarmBalance.refresh().then(showBalanceEditor).catch(e=>toast(e.message,true));});}
+ if(action==='balanceRefresh'){openModal('Сбросить черновик?',note('Будет загружен текущий общий баланс. Неопубликованные изменения будут отменены.'),'Сбросить',()=>{void FarmBalance.refresh().then(showBalanceEditor).catch(e=>reportAction(e.message,true));});}
  if(action==='balanceDefaults'){openModal('Заводские параметры?',note('Заводские значения будут загружены в черновик. Для изменения игры затем нажмите «Применить для всех».'),'Загрузить',()=>{FarmBalance.defaults();showBalanceEditor();});}
  if(action==='balancePublish'){
-  FarmBalance.validate();const changed=FarmBalance.changed;if(!changed){toast('Изменений нет.');return true;}
-  openModal('Изменить баланс для всех?',note('Изменённых параметров: '+changed+'. Активные игроки получат обновление при ближайшем сохранении, обычно в течение 10 секунд; остальные — при входе.'),'Опубликовать',()=>{void FarmBalance.publish().then(d=>{render(true);showBalanceEditor();toast('Баланс v'+d.revision+' применён для всех.');}).catch(e=>{showBalanceEditor();$('balanceError').textContent=e.message;});});
+  FarmBalance.validate();const changed=FarmBalance.changed;if(!changed){setActionFeedback('Изменений нет.');return true;}
+  openModal('Изменить баланс для всех?',note('Изменённых параметров: '+changed+'. Активные игроки получат обновление при ближайшем сохранении, обычно в течение 10 секунд; остальные — при входе.'),'Опубликовать',()=>{void FarmBalance.publish().then(d=>{render(true);showBalanceEditor();setActionFeedback('Баланс v'+d.revision+' применён для всех.');}).catch(e=>{showBalanceEditor();$('balanceError').textContent=e.message;});});
  }
- }catch(e){if($('balanceError'))$('balanceError').textContent=e.message;else toast(e.message,true);}return true;
+ }catch(e){if($('balanceError'))$('balanceError').textContent=e.message;else reportAction(e.message,true);}return true;
 }
 document.addEventListener('submit',async e=>{if(e.target.id!=='adminLoginForm')return;e.preventDefault();const input=$('adminPassword'),password=input.value;input.value='';const button=e.target.querySelector('button');button.disabled=true;try{await FarmBalance.login(password);showBalanceEditor();}catch(err){if($('adminLoginError'))$('adminLoginError').textContent=err.message;}finally{if(button.isConnected)button.disabled=false;}});
 document.addEventListener('input',e=>{const path=e.target.dataset.balance;if(path){const f=FarmBalance.spec.byPath.get(path),raw=e.target.value,n=raw.trim()===''?NaN:Number(raw)*(f.unit==='hours'?3600000:1);FarmBalance.draft[path]=f.unit==='hours'&&Number.isFinite(n)?Math.round(n):n;e.target.setAttribute('aria-invalid',String(!Number.isFinite(n)||n<f.min||n>f.max||f.integer&&!Number.isSafeInteger(FarmBalance.draft[path])));if($('balanceDirty'))$('balanceDirty').textContent='Изменено: '+FarmBalance.changed;}if(e.target.id==='balanceSearch')filterBalanceRows();});
-document.addEventListener('change',async e=>{if(e.target.id==='balanceCategory')filterBalanceRows();if(e.target.id==='balanceImportFile'){const file=e.target.files?.[0];e.target.value='';if(!file)return;try{await FarmBalance.importFile(file);showBalanceEditor();toast('Параметры загружены в черновик. Для публикации нажмите «Применить для всех».');}catch(err){if($('balanceError'))$('balanceError').textContent=err.message;}}});
+document.addEventListener('change',async e=>{if(e.target.id==='balanceCategory')filterBalanceRows();if(e.target.id==='balanceImportFile'){const file=e.target.files?.[0];e.target.value='';if(!file)return;try{await FarmBalance.importFile(file);showBalanceEditor();setActionFeedback('Параметры загружены в черновик. Для публикации нажмите «Применить для всех».');}catch(err){if($('balanceError'))$('balanceError').textContent=err.message;}}});
 window.addEventListener('farm-balance',()=>{if(state&&world){previousHud='';render(true);}});
 
 function showSettings(){
   const name=state.farmName||FC.DEFAULT_FARM_NAME;
   const cloudInfo=FarmNet.enabled?'<div class="card soft"><b>Сетевая ферма</b><p class="note topgap">Основной прогресс и добыча набегов хранятся на сервере. Telegram хранит резервную копию. При потере связи игра приостанавливается до подключения.</p></div>'+(FarmNet.recoveryAvailable?btn('Скачать несинхронизированную копию','exportNetworkRecovery',{},'ghost full topgap'):'')+'<div class="line"></div>':FarmSaves.cloudMode?'<div class="card soft"><b>Сохранение аккаунта Telegram</b><p class="note topgap">Прогресс хранится в облаке этого бота и доступен вашему аккаунту на других устройствах. Играйте на одном устройстве за раз.</p></div>'+(FarmSaves.recoveryAvailable?btn('Скачать несинхронизированную копию','exportRecovery',{},'ghost full topgap'):'')+'<div class="line"></div>':'';
-  const body=cloudInfo+'<div class="farm-name-editor"><label for="farmNameInput"><b>Название фермы</b></label><input id="farmNameInput" class="topgap" type="text" maxlength="48" value="'+h(name)+'" autocomplete="off" aria-describedby="farmNameHint farmNameError"><p class="note topgap" id="farmNameHint">От 1 до '+FC.FARM_NAME_LIMIT+' символов · <span id="farmNameCount">'+Array.from(name).length+'</span> / '+FC.FARM_NAME_LIMIT+'. В шапке длинное название сокращается многоточием.</p><p class="note danger" id="farmNameError" role="status"></p>'+btn('Сохранить название','renameFarm',{},'secondary full topgap')+'</div><div class="line"></div><div class="toggle-line"><div><h3>Звуки фермы</h3><p class="note">Короткие звуки действий. Музыка не загружается.</p></div><button class="toggle '+(sound?'on':'')+'" data-action="toggleSound" aria-label="Звуки" aria-pressed="'+sound+'"></button></div><div class="toggle-line"><div><h3>Тёмная тема</h3><p class="note">Интерфейс, карта и все панели переключаются на ночную палитру. Выбор сохраняется в этом браузере.</p></div><button class="toggle '+(theme==='dark'?'on':'')+'" data-action="toggleTheme" aria-label="Тёмная тема" aria-pressed="'+(theme==='dark')+'"></button></div><div class="line"></div><div class="help-section"><h3>Ваша ферма сохраняется</h3><p>Автосохранение выполняется после действий и каждые 30 игровых секунд. '+(FarmNet.enabled?'Основная копия хранится на сервере; Telegram — резервная копия.':'')+(FarmNet.enabled?'':FarmSaves.cloudMode?'Основная копия хранится в Telegram, запасная — на этом устройстве.':'Копия хранится в этом браузере.')+' Экспортируйте JSON, чтобы перенести игру или сделать резервную копию.</p></div><div class="row wrap">'+btn(ico('save',17)+' Сохранить сейчас','save',{},'secondary grow')+btn('Скачать JSON','export',{},'grow')+'</div><div class="row topgap">'+btn('Импортировать JSON','import',{},'ghost full',FarmNet.enabled,'Для сетевой фермы восстановление старой копии отключено')+'</div><div class="card '+(saveState==='error'?'danger':'soft')+' topgap">'+note(saveState==='error'?saveMessage:'Есть основная запись и предыдущая автоматическая копия.')+'</div><div class="line"></div><div class="help-section"><h3>Игровое время</h3><p>На паузе, в скрытой вкладке, при закрытом файле и пока открыто окно подтверждения таймеры остановлены. Производство за время отсутствия не начисляется.</p><p class="topgap">Проведено на ферме: <b>'+secs(state.time)+'</b>. Уровень: <b>'+fmt(state.level)+'</b>.</p></div>'+btn('Начать новую ферму','newGamePreview',{},'danger full',FarmNet.enabled,'Сетевая ферма привязана к аккаунту');
-  const performanceControls='<div class="line"></div><div class="toggle-line"><div><h3>Экономичный режим</h3><p class="note">20 кадров/с и сниженное разрешение карты. Меньше нагрузка на телефон. Скорость роста и работы не меняется.</p></div><button class="toggle '+(economyMode?'on':'')+'" data-action="toggleEconomy" aria-label="Экономичный режим" aria-pressed="'+economyMode+'"></button></div>'+note('Обычный режим: до 30 кадров/с. Под мобильной панелью карта обновляется раз в секунду; на паузе и под модальным окном — только при изменениях.');
+  const body=cloudInfo+'<div class="farm-name-editor"><label for="farmNameInput"><b>Название фермы</b></label><input id="farmNameInput" class="topgap" type="text" maxlength="48" value="'+h(name)+'" autocomplete="off" aria-describedby="farmNameHint farmNameError"><p class="note topgap" id="farmNameHint">От 1 до '+FC.FARM_NAME_LIMIT+' символов · <span id="farmNameCount">'+Array.from(name).length+'</span> / '+FC.FARM_NAME_LIMIT+'. В шапке длинное название сокращается многоточием.</p><p class="note danger" id="farmNameError" role="status"></p>'+btn('Сохранить название','renameFarm',{},'secondary full topgap')+'</div><div class="line"></div><div class="toggle-line"><div><h3>Звуки фермы</h3><p class="note">Короткие звуки действий. Музыка не загружается.</p></div><button class="toggle '+(sound?'on':'')+'" data-action="toggleSound" aria-label="Звуки" aria-pressed="'+sound+'"></button></div><div class="toggle-line"><div><h3>Тёмная тема</h3><p class="note">Интерфейс, карта и все панели переключаются на ночную палитру. Выбор сохраняется в этом браузере.</p></div><button class="toggle '+(theme==='dark'?'on':'')+'" data-action="toggleTheme" aria-label="Тёмная тема" aria-pressed="'+(theme==='dark')+'"></button></div><div class="line"></div><div class="help-section"><h3>Ваша ферма сохраняется</h3><p>Автосохранение выполняется после действий и каждые 30 игровых секунд. '+(FarmNet.enabled?'Основная копия хранится на сервере; Telegram — резервная копия.':'')+(FarmNet.enabled?'':FarmSaves.cloudMode?'Основная копия хранится в Telegram, запасная — на этом устройстве.':'Копия хранится в этом браузере.')+' Экспортируйте JSON, чтобы перенести игру или сделать резервную копию.</p></div><div class="row wrap">'+btn(ico('save',17)+' Сохранить сейчас','save',{},'secondary grow')+btn('Скачать JSON','export',{},'grow')+'</div><div class="row topgap">'+btn('Импортировать JSON','import',{},'ghost full',FarmNet.enabled,'Для сетевой фермы восстановление старой копии отключено')+'</div><div class="card soft topgap"><p id="settingsSaveStatus" class="note '+(saveState==='error'||saveState==='warning'?'danger':'')+'" role="status">'+h(saveMessage||'Автосохранение включено.')+'</p></div><div class="line"></div><div class="help-section"><h3>Игровое время</h3><p>В скрытой вкладке, при закрытом файле и пока открыто окно подтверждения таймеры остановлены. Производство за время отсутствия не начисляется.</p><p class="topgap">Проведено на ферме: <b>'+secs(state.time)+'</b>. Уровень: <b>'+fmt(state.level)+'</b>.</p></div>'+btn('Начать новую ферму','newGamePreview',{},'danger full',FarmNet.enabled,'Сетевая ферма привязана к аккаунту');
+  const performanceControls='<div class="line"></div><div class="toggle-line"><div><h3>Экономичный режим</h3><p class="note">20 кадров/с и сниженное разрешение карты. Меньше нагрузка на телефон. Скорость роста и работы не меняется.</p></div><button class="toggle '+(economyMode?'on':'')+'" data-action="toggleEconomy" aria-label="Экономичный режим" aria-pressed="'+economyMode+'"></button></div>'+note('Обычный режим: до 30 кадров/с. Под мобильной панелью карта обновляется раз в секунду; под модальным окном — только при изменениях.');
   openModal('Настройки и сохранения',body+performanceControls+adminControls());
 }
 function showHelp(){
@@ -4646,17 +4690,17 @@ function showHelp(){
   ];
   openModal('Добро пожаловать в долину',help.map(([title,text])=>'<div class="help-section"><h3>'+h(title)+'</h3><p>'+h(text)+'</p></div>').join('')+'<div class="card soft">'+note('Игра целиком находится в этом HTML-файле. Интернет, установки и сервер не нужны. Для переноса прогресса используйте экспорт JSON в настройках.')+'</div>');
 }
-async function handleAction(action,p){
+async function handleAction(action,p,source=feedbackOrigin){
   if(action==='networkReconnect'){await FarmNet.reconnect(FarmNet.sessionConflict);return;}
   if(!state&&action!=='help'&&action!=='toggleTheme')return;
-  if(FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy)&&!['export','help','closeModal'].includes(action)){toast('Дождитесь подключения к серверу.',true);return;}
+  if(FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy)&&!['export','help','closeModal'].includes(action)){reportAction('Дождитесь подключения к серверу.',true);return;}
   if(action==='neighbors'){section='neighbors';showPanel();render(true);await loadNeighbors();return;}
   if(action==='inviteNeighbor'){const data=await FarmNet.invite();openModal('Пригласить соседа','<div class="farm-name-editor"><input readonly aria-label="Ссылка приглашения" value="'+h(data.url)+'"></div>'+note('Отправьте эту ссылку знакомому. После открытия через Telegram вы появитесь друг у друга в соседях.')+btn('Поделиться в Telegram','shareNeighbor',{url:data.url},'secondary full topgap'));return;}
   if(action==='shareNeighbor'){Telegram.WebApp.openTelegramLink('https://t.me/share/url?url='+encodeURIComponent(p.url)+'&text='+encodeURIComponent('Заходи на мою ферму!'));return;}
-  if(action==='requestNeighbor'){await FarmNet.neighbor('request',{id:p.id});toast('Предложение соседства отправлено.');return;}
-  if(action==='acceptNeighbor'){await FarmNet.neighbor('accept',{id:p.id});toast('Теперь вы соседи.');await loadNeighbors();return;}
+  if(action==='requestNeighbor'){await FarmNet.neighbor('request',{id:p.id});setActionFeedback('Предложение отправлено.',false,source);return;}
+  if(action==='acceptNeighbor'){await FarmNet.neighbor('accept',{id:p.id});await loadNeighbors();setActionFeedback('Теперь вы соседи.',false,source);return;}
   if(action==='raidPreview'){await previewRaid(p.id);return;}
-  if(FarmNet.enabled&&['newGamePreview','import'].includes(action)){toast('Сетевая ферма хранится на сервере: сброс и восстановление старой копии отключены, чтобы не отменять набеги.',true);return;}
+  if(FarmNet.enabled&&['newGamePreview','import'].includes(action)){reportAction('Сетевая ферма хранится на сервере: сброс и восстановление старой копии отключены, чтобы не отменять набеги.',true);return;}
 
   if(action==='leaderboard'){section='top';showPanel();render(true);loadTop();return;}
   if(action==='refreshTop'){loadTop();return;}
@@ -4665,7 +4709,7 @@ async function handleAction(action,p){
   if(action==='leaveVisit'){leaveVisit();return;}
   if(action==='visitLand'&&visitState){if(visitState.lands[p.cx+','+p.cy])world.focus(p.cx*16+8,p.cy*16+8);if(innerWidth<981)hidePanel();return;}
   if(action==='nav'&&visitState&&p.section==='farm'){leaveVisit();return;}
-  if(visitState&&!['zoom','home','hidePanel','showPanel','toggleTheme','help','closeModal','confirmModal'].includes(action)){toast('Для управления вернитесь на свою ферму.');return;}
+  if(visitState&&!['zoom','home','hidePanel','showPanel','toggleTheme','help','closeModal','confirmModal'].includes(action)){reportAction('Для управления вернитесь на свою ферму.');return;}
   if(action==='showPanel'&&visitState){section='visit';showPanel();render(true);return;}
   if(action==='nav'){setSection(p.section);return;}
   if(action==='inventory'){setSection('inventory');return;}
@@ -4675,10 +4719,10 @@ async function handleAction(action,p){
   if(action==='marketSaveLimit'){marketSetLimits(p.id,$('marketItem').value,$('marketKeep').value);return;}
   if(action==='marketRemoveGroup'){marketSetLimits(p.id,'group:'+p.group,null);return;}
   if(action==='marketRemoveLimit'){perform('marketLimit',{id:p.id,item:p.item,keep:null});return;}
-  if(action==='feedDog'){if(FarmNet.enabled){await FarmNet.feedDog(p.id);render(true);toast('Собака накормлена.');}else perform('feedDog',{id:p.id,now:Date.now()});return;}
+  if(action==='feedDog'){if(FarmNet.enabled){await FarmNet.feedDog(p.id);render(true);reportAction('Собака накормлена.');}else perform('feedDog',{id:p.id,now:Date.now()});return;}
   if(await handleAdminAction(action))return;
   if(action==='confirmModal'){const cb=modalCallback;closeModal();if(cb)cb();return;}
-  if(action==='toggleTheme'){theme=theme==='dark'?'light':'dark';savePreferences({theme});applyTheme();render(true);if(modalOpen&&section==='farm'){/* keep open */}toast(theme==='dark'?'Тёмная тема включена.':'Светлая тема включена.');if(modalOpen&&$('modalRoot').querySelector('[data-action="toggleTheme"]'))showSettings();return;}
+  if(action==='toggleTheme'){theme=theme==='dark'?'light':'dark';savePreferences({theme});applyTheme();render(true);if(modalOpen&&section==='farm'){/* keep open */}reportAction(theme==='dark'?'Тёмная тема включена.':'Светлая тема включена.');if(modalOpen&&$('modalRoot').querySelector('[data-action="toggleTheme"]'))showSettings();return;}
   if(action==='zoom'){world.zoomBy(p.factor);return;}
   if(action==='home'){world.home();return;}
   if(action==='help'){showHelp();return;}
@@ -4688,25 +4732,25 @@ async function handleAction(action,p){
     const result=FC.act(state,'renameFarm',{name:input.value});
     if(!result.ok){$('farmNameError').textContent=result.msg;input.setAttribute('aria-invalid','true');input.focus();return;}
     input.removeAttribute('aria-invalid');input.value=state.farmName;$('farmNameCount').textContent=Array.from(state.farmName).length;$('farmNameError').textContent='';updateFarmName();clearTimeout(saveTimer);
-    const saved=await FarmSaves.save(state);toast(saved?'Название фермы сохранено.':'Название изменено. Состояние сохранения можно проверить в настройках.',!saved);return;
+    const saved=await FarmSaves.save(state);if(!saved&&saveState!=='error')saveStatus('error','Название изменено, но сохранение не подтверждено.');updateSettingsSaveStatus();return;
   }
   if(action==='toggleEconomy'){economyMode=!economyMode;savePreferences({economyMode});world.setEconomy(economyMode);showSettings();wakeFrame();return;}
   if(action==='toggleSound'){sound=!sound;savePreferences({sound});showSettings();chirp();return;}
   if(action==='exportNetworkRecovery'){FarmNet.exportRecovery();return;}
   if(action==='exportRecovery'){FarmSaves.exportRecovery?.();return;}
-  if(action==='save'){const ok=await FarmSaves.save(state);toast(ok?'Ферма сохранена.':'Не удалось сохранить. Подробности — в настройках.',!ok);return;}
-  if(action==='export'){FarmSaves.exportJSON(state);toast('Резервная копия JSON подготовлена.');return;}
+  if(action==='save'){const ok=await FarmSaves.save(state);if(ok)saveStatus('saved','Прогресс сохранён.');else if(saveState!=='error')saveStatus('error',FarmSaves.error||'Не удалось сохранить. Повторите попытку.');updateSettingsSaveStatus();return;}
+  if(action==='export'){FarmSaves.exportJSON(state);reportAction('Резервная копия JSON подготовлена.');return;}
   if(action==='import'){$('importFile').click();return;}
-  if(action==='newGamePreview'){openModal('Начать новую ферму?','<p class="small muted">Текущее хозяйство будет заменено стартовым: дом, колодец, склад, шесть грядок, 500 монет, 40 дерева и 20 камня. Чтобы оставить текущий прогресс, сначала скачайте JSON.</p>'+btn('Скачать текущую ферму','export',{},'secondary full topgap'),'Начать заново',()=>{clearTimeout(saveTimer);state=FC.create();lastLevel=1;selectedId=null;selectedNature=null;section='farm';cancelPlacement();world.selectedId=null;world.refresh?.();world.home();FarmSaves.replace(state);render(true);toast('Новая история начинается с маленького ростка.');},'danger');return;}
+  if(action==='newGamePreview'){openModal('Начать новую ферму?','<p class="small muted">Текущее хозяйство будет заменено стартовым: дом, колодец, склад, шесть грядок, 500 монет, 40 дерева и 20 камня. Чтобы оставить текущий прогресс, сначала скачайте JSON.</p>'+btn('Скачать текущую ферму','export',{},'secondary full topgap'),'Начать заново',()=>{clearTimeout(saveTimer);state=FC.create();lastLevel=1;selectedId=null;selectedNature=null;section='farm';cancelPlacement();world.selectedId=null;world.refresh?.();world.home();FarmSaves.replace(state);render(true);reportAction('Новая история начинается с маленького ростка.');},'danger');return;}
   if(action==='category'){category=p.category;render(true);return;}
   if(action==='goProductionCatalog'){category='production';setSection('build');return;}
   if(action==='buildingCard'){showBuildingCard(p.type);return;}
   if(action==='landPreview'){showLandPreview(p.cx,p.cy);return;}
   if(action==='landFocus'){if(!FC.inWorld(p.cx,p.cy))return;selectedLand={cx:p.cx,cy:p.cy};world.focus(p.cx*16+8,p.cy*16+8);updateLandTitle();if(innerWidth<981)hidePanel();render(true);return;}
-  if(action==='arrange'){arranging=!arranging;if(arranging){toast('Выберите объект, затем «Переместить», «Повернуть» или «Снести».');$('mapHelp').textContent='Выберите объект для переноса или обустройства.';}else{$('mapHelp').textContent='Нажмите на объект для действий. Перетаскивание перемещает карту.';cancelPlacement();}render(true);return;}
+  if(action==='arrange'){arranging=!arranging;if(arranging){reportAction('Выберите объект, затем «Переместить», «Повернуть» или «Снести».');$('mapHelp').textContent='Выберите объект для переноса или обустройства.';}else{$('mapHelp').textContent='Нажмите на объект для действий. Перетаскивание перемещает карту.';cancelPlacement();}render(true);return;}
   if(action==='moveStart'){const b=state.buildings.find(b=>b.id===p.id);if(b)startPlacement(b.type,b.id);return;}
-  if(action==='rotateBuilding'){const b=state.buildings.find(b=>b.id===p.id);if(b){startPlacement(b.type,b.id);placement.rotation=(b.rotation+1)%4;world.setPlacement(placement);renderPlacement();toast('Нажмите на свободное место, чтобы подтвердить поворот.');}return;}
-  if(action==='rotatePlacement'){if(placement){placement.rotation=(placement.rotation+1)%4;world.setPlacement(placement);renderPlacement();}return;}
+  if(action==='rotateBuilding'){const b=state.buildings.find(b=>b.id===p.id);if(b){startPlacement(b.type,b.id);placement.rotation=(b.rotation+1)%4;world.setPlacement(placement);renderPlacement();reportAction('Нажмите на свободное место, чтобы подтвердить поворот.');}return;}
+  if(action==='rotatePlacement'){clearActionFeedback();if(placement){placement.rotation=(placement.rotation+1)%4;world.setPlacement(placement);renderPlacement();}return;}
   if(action==='cancelPlacement'){cancelPlacement();showPanel();return;}
   if(action==='upgradePreview'){showUpgrade(p.id);return;}
   if(action==='demolishPreview'){showDemolish(p.id);return;}
@@ -4721,16 +4765,16 @@ async function handleAction(action,p){
   if(action==='sellQty'){const n=Number($('sellQty-'+p.item)?.value);perform('sell',{item:p.item,qty:n});return;}
   if(action==='normalizeQty'){const n=Number($('sellQty-'+p.item)?.value);perform('normalize',{item:p.item,qty:n});return;}
   if(action==='buyQty'){const n=Number($('buyQty-'+p.item)?.value);perform('buy',{item:p.item,qty:n});return;}
-  if(action==='getWater'){const b=state.buildings.find(b=>b.type==='well');if(b)perform('well',{id:b.id});else toast('Сначала постройте колодец.',true);return;}
+  if(action==='getWater'){const b=state.buildings.find(b=>b.type==='well');if(b)perform('well',{id:b.id});else reportAction('Сначала постройте колодец.',true);return;}
   const r=perform(action,p);
   if(action==='clear'&&r?.ok){selectedNature=null;render(true);}
 }
 function updateLandTitle(){if(!state||!world)return;const shown=visitState||state;const v=world.view,cx=Math.floor(v.x/16),cy=Math.floor(v.y/16),info=FC.landInfo(shown,cx,cy);$('landTitle').textContent=cx===0&&cy===0?'Домашний луг':info.name;$('landSubtitle').textContent='Участок '+cx+' · '+cy+' — '+(info.owned?(visitState?'земля этой фермы':'ваша земля'):'новые возможности');}
-document.addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||button.disabled)return;e.preventDefault();e.stopPropagation();lastPointer=performance.now();let p={};try{p=JSON.parse(button.dataset.p||'{}');}catch(err){}handleAction(button.dataset.action,p).catch(err=>{console.error(err);toast('Действие не выполнено: '+err.message,true);});});
+document.addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||button.disabled)return;e.preventDefault();e.stopPropagation();lastPointer=performance.now();feedbackOrigin=button;clearActionFeedback();let p={};try{p=JSON.parse(button.dataset.p||'{}');}catch(err){}handleAction(button.dataset.action,p,button).catch(err=>{console.error(err);setActionFeedback('Действие не выполнено: '+err.message,true,button);});});
 document.addEventListener('pointerdown',()=>{lastPointer=performance.now();},true);
 document.addEventListener('input',e=>{if(e.target.id==='marketKeep'&&selectedId){marketEditors.set(selectedId,{item:$('marketItem').value,keep:e.target.value});}if(e.target.id==='farmNameInput'){$('farmNameCount').textContent=Array.from(FC.normalizeFarmName(e.target.value)).length;$('farmNameError').textContent='';e.target.removeAttribute('aria-invalid');}});
 document.addEventListener('change',e=>{
-  const t=e.target,a=t.dataset.change;if(t.id==='marketItem'&&selectedId){const b=state.buildings.find(b=>b.id===selectedId);marketEditors.set(selectedId,{item:t.value,keep:b?.settings.limits?.[t.value]??$('marketKeep')?.value??20});renderPanel();return;}if(!a||!state)return;
+  const t=e.target,a=t.dataset.change;feedbackOrigin=t;clearActionFeedback();if(t.id==='marketItem'&&selectedId){const b=state.buildings.find(b=>b.id===selectedId);marketEditors.set(selectedId,{item:t.value,keep:b?.settings.limits?.[t.value]??$('marketKeep')?.value??20});renderPanel();return;}if(!a||!state)return;
   if(a==='setting')perform('setting',{id:t.dataset.id,key:t.dataset.key,value:t.value});
   else if(a==='specialize'){const id=t.dataset.id,value=t.value;render(true);showSpecialization(id,value);}
   else if(a==='worker'){const w=state.workers.find(w=>w.id===t.dataset.id);if(w){const p={id:w.id,task:w.task,buildingId:w.buildingId,priority:w.priority};p[t.dataset.key]=t.dataset.key==='priority'?Number(t.value):t.dataset.key==='buildingId'?t.value||null:t.value;perform('worker',p);}}
@@ -4738,7 +4782,7 @@ document.addEventListener('change',e=>{
 });
 $('importFile').addEventListener('change',async e=>{
   const f=e.target.files[0];e.target.value='';if(!f)return;
-  try{pendingImport=await FarmSaves.parseFile(f);openModal('Восстановить ферму из JSON?','<div class="card soft"><p>В выбранном файле: <b>уровень '+fmt(pendingImport.level)+'</b>, '+fmt(Object.keys(pendingImport.lands).length)+' участков и '+fmt(pendingImport.buildings.length)+' объектов.</p><p class="note topgap">Текущая ферма будет заменена только после подтверждения. Игровые таймеры продолжатся с сохранённого момента.</p></div>'+btn('Скачать текущую ферму перед заменой','export',{},'ghost full topgap'),'Восстановить',()=>{clearTimeout(saveTimer);state=pendingImport;pendingImport=null;lastLevel=state.level;selectedId=null;selectedNature=null;section='farm';cancelPlacement();world.selectedId=null;world.refresh?.();world.home();FarmSaves.replace(state);render(true);toast('Ферма восстановлена. Офлайн-время не начислялось.');});}catch(err){toast(err.message,true);}
+  try{pendingImport=await FarmSaves.parseFile(f);openModal('Восстановить ферму из JSON?','<div class="card soft"><p>В выбранном файле: <b>уровень '+fmt(pendingImport.level)+'</b>, '+fmt(Object.keys(pendingImport.lands).length)+' участков и '+fmt(pendingImport.buildings.length)+' объектов.</p><p class="note topgap">Текущая ферма будет заменена только после подтверждения. Игровые таймеры продолжатся с сохранённого момента.</p></div>'+btn('Скачать текущую ферму перед заменой','export',{},'ghost full topgap'),'Восстановить',()=>{clearTimeout(saveTimer);state=pendingImport;pendingImport=null;lastLevel=state.level;selectedId=null;selectedNature=null;section='farm';cancelPlacement();world.selectedId=null;world.refresh?.();world.home();FarmSaves.replace(state);render(true);reportAction('Ферма восстановлена. Офлайн-время не начислялось.');});}catch(err){reportAction(err.message,true);}
 });
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){if(modalOpen)closeModal();else if(placement)cancelPlacement();else hidePanel();return;}
@@ -4792,7 +4836,7 @@ document.addEventListener('visibilitychange',()=>{
 window.addEventListener('pagehide',saveOnExit);
 window.addEventListener('pageshow',()=>{exitSave=null;});
 function saveStatus(kind,msg){
-  saveState=kind;saveMessage=msg;
+  saveState=kind;saveMessage=msg;updateSettingsSaveStatus();
   const warning=kind==='error'||kind==='warning';const dot=$('saveDot');if(dot){dot.classList.toggle('bad',warning);dot.title=msg;}
 }
 window.addEventListener('unhandledrejection',event=>{console.error('Unhandled asynchronous error:',event.reason);});
@@ -4825,7 +4869,7 @@ async function init(){
   await FarmWorld.ready;
   FarmNet.install(()=>state,applyNetworkState,saveStatus);
   FarmSocial.start(()=>state,()=>{if(world&&section==='top')renderPanel();});
-  await Promise.all([buildingsReady,FarmNet.acceptLaunch().catch(e=>toast(e.message,true))]);
+  await Promise.all([buildingsReady,FarmNet.acceptLaunch().catch(e=>reportAction(e.message,true))]);
   updateLandTitle();render(true);
   if(innerWidth>=981)showPanel();else hidePanel();
   frameRequest=requestAnimationFrame(now=>{frame(now);$('loading').remove();});
