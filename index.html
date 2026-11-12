@@ -396,13 +396,7 @@ html body .panel-body .section-title{margin-top:12px;margin-bottom:12px}
 })();
 </script>
 <style>
-@media(max-width:980px){
- html body .toast-container{top:auto;bottom:calc(95px + env(safe-area-inset-bottom));left:10px;right:10px;width:auto;max-width:none;transform:none;pointer-events:none;gap:0}
- html body .toast{padding:10px 14px!important;font-size:12px;line-height:1.35;pointer-events:none}
- html body .panel,html body.visiting .panel{bottom:calc(87px + env(safe-area-inset-bottom) + var(--toast-space,0px))}
- html body .modal-root{padding-bottom:calc(100px + env(safe-area-inset-bottom) + var(--toast-space,0px))}
- html body .modal{max-height:calc(var(--farm-viewport-height,100dvh) - 130px - env(safe-area-inset-bottom) - var(--toast-space,0px))}
-}
+body:has(#panel:not(.mobile-hidden),.modal-root:not(.hide)) #toasts{display:none}
 </style>
 </head>
 <body>
@@ -4239,12 +4233,7 @@ function applyTheme(){
   if(world&&world.setTheme)world.setTheme(theme);
 }
 function chirp(ok=true){if(!sound)return;try{audioContext=audioContext||new(window.AudioContext||window.webkitAudioContext)();const o=audioContext.createOscillator(),g=audioContext.createGain();o.type='sine';o.frequency.setValueAtTime(ok?580:190,audioContext.currentTime);o.frequency.exponentialRampToValueAtTime(ok?850:140,audioContext.currentTime+.11);g.gain.setValueAtTime(.025,audioContext.currentTime);g.gain.exponentialRampToValueAtTime(.0001,audioContext.currentTime+.16);o.connect(g);g.connect(audioContext.destination);o.start();o.stop(audioContext.currentTime+.17);}catch(e){}}
-const toastLayout=new ResizeObserver(()=>{
- const box=$('toasts');
- document.documentElement.style.setProperty('--toast-space',box.children.length?(Math.ceil(box.getBoundingClientRect().height)+16)+'px':'0px');
-});
-toastLayout.observe($('toasts'));
-function toast(msg,error=false){if(!msg)return;const d=document.createElement('div');d.className='toast'+(error?' error':'');d.textContent=msg;$('toasts').appendChild(d);while($('toasts').children.length>(innerWidth<=980?1:3))$('toasts').firstChild.remove();setTimeout(()=>{d.classList.add('exit');setTimeout(()=>d.remove(),300);},error?5400:3300);}
+function toast(msg,error=false){if(!msg||modalOpen||!$('panel').classList.contains('mobile-hidden')||!$('networkGate').classList.contains('hide'))return;const d=document.createElement('div');d.className='toast'+(error?' error':'');d.textContent=msg;$('toasts').appendChild(d);while($('toasts').children.length>(innerWidth<=980?1:3))$('toasts').firstChild.remove();setTimeout(()=>{d.classList.add('exit');setTimeout(()=>d.remove(),300);},error?5400:3300);}
 function scheduleSave(){clearTimeout(saveTimer);saveTimer=setTimeout(()=>FarmSaves.save(state),120);}
 function perform(action,p={},quiet=false){if(!state)return;
   if(FarmNet.configured&&!FarmNet.gateRoadsSupported&&(action==='build'||action==='move')){
@@ -4258,13 +4247,13 @@ function perform(action,p={},quiet=false){if(!state)return;
     return {ok:false};
   }
 if(FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy)){toast('Дождитесь подтверждения сервера.',true);return {ok:false};}if(visitState){toast('Вы осматриваете чужую ферму.',true);return {ok:false};}let r;try{r=FC.act(state,action,p);}catch(e){console.error(e);r={ok:false,msg:'Действие не выполнено: '+e.message};}if(r.ok){if(!quiet)toast(r.msg);chirp();if(['build','move','demolish','clear','land','hire','fire'].includes(action))world.refresh?.();scheduleSave();}else{toast(r.msg||'Действие сейчас недоступно.',true);chirp(false);}render(true);return r;}
-function showPanel(){ $('panel').classList.remove('mobile-hidden');$('panel').inert=false; }
+function showPanel(){ $('toasts').replaceChildren();$('panel').classList.remove('mobile-hidden');$('panel').inert=false; }
 function hidePanel(){if($('panel').contains(document.activeElement))document.activeElement.blur();$('panel').classList.add('mobile-hidden');if(innerWidth<981)$('panel').inert=true; }
 function setSection(value){section=value;selectedNature=null;selectedId=null;if(world)world.selectedId=null;if(value!=='build')cancelPlacement();showPanel();render(true);}
 function cancelPlacement(){placement=null;if(world)world.setPlacement(null);$('placementBar').classList.add('hide');}
 function startPlacement(type,moveId){const b=moveId?state.buildings.find(b=>b.id===moveId):null;placement={type,moveId:moveId||null,rotation:b?.rotation||0};world.setPlacement(placement);renderPlacement();if(innerWidth<981)hidePanel();toast(moveId?'Выберите новое место. Очереди и содержимое сохранятся.':'Нажмите на свободную землю для размещения.');}
 function renderPlacement(){if(!placement)return;const d=FC.BUILDINGS[placement.type];$('placementBar').classList.remove('hide');$('placementBar').innerHTML='<div class="row spread"><div><b>'+(placement.moveId?'Перенос: ':'Размещение: ')+h(d.name)+'</b><div class="tiny muted" style="margin-top:4px">Зелёный контур — место доступно'+(placement.type==='gate'?' · Открытие '+gateOpeningArrows[placement.rotation]:'')+(!placement.moveId?' · Цена: '+fmt(FC.buildPreview(state,placement.type).cost.coins||0)+' монет':'')+(!placement.moveId&&!d.unique?' · Можно ставить подряд':'')+'</div></div><div class="row gap6"><button data-action="rotatePlacement" title="Поворот · R">↻ '+(placement.rotation*90)+'°</button><button data-action="cancelPlacement" title="Отмена · Escape">✕</button></div></div>';}
-function openModal(title,body,confirmLabel,callback,kind=''){lastFrame=performance.now();modalOpen=true;modalCallback=callback||null;$('modalRoot').classList.remove('hide');$('modalRoot').innerHTML='<section class="modal" role="dialog" aria-modal="true" aria-label="'+h(title)+'"><div class="modal-head"><h2>'+h(title)+'</h2><button class="icon-btn" data-action="closeModal" aria-label="Закрыть">'+ico('close',20)+'</button></div><div class="modal-body">'+body+'</div><div class="modal-footer">'+btn(confirmLabel?'Отмена':'Понятно','closeModal',{},'ghost')+(confirmLabel?btn(h(confirmLabel),'confirmModal',{},kind):'')+'</div></section>';setTimeout(()=>$('modalRoot').querySelector('button')?.focus(),0);}
+function openModal(title,body,confirmLabel,callback,kind=''){$('toasts').replaceChildren();lastFrame=performance.now();modalOpen=true;modalCallback=callback||null;$('modalRoot').classList.remove('hide');$('modalRoot').innerHTML='<section class="modal" role="dialog" aria-modal="true" aria-label="'+h(title)+'"><div class="modal-head"><h2>'+h(title)+'</h2><button class="icon-btn" data-action="closeModal" aria-label="Закрыть">'+ico('close',20)+'</button></div><div class="modal-body">'+body+'</div><div class="modal-footer">'+btn(confirmLabel?'Отмена':'Понятно','closeModal',{},'ghost')+(confirmLabel?btn(h(confirmLabel),'confirmModal',{},kind):'')+'</div></section>';setTimeout(()=>$('modalRoot').querySelector('button')?.focus(),0);}
 function closeModal(){lastFrame=performance.now();modalOpen=false;modalCallback=null;$('modalRoot').classList.add('hide');$('modalRoot').innerHTML='';}
 function buildingTitle(b){if(FC.fenceLevel(b))return (b.type==='gate'?'Ворота':'Забор')+' · '+FC.FENCE_LEVELS[FC.fenceLevel(b)-1];if(FC.roadLevel(b))return 'Дорожка · '+FC.ROAD_LEVELS[FC.roadLevel(b)-1].name;if(b.type==='plot'&&b.plant)return FC.CROPS[b.plant.crop]?.name||FC.BUILDINGS[b.type].name;return FC.BUILDINGS[b.type]?.name||'Постройка';}
 function onPick(hit){
