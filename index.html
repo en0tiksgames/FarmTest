@@ -1908,6 +1908,14 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
   }
 
   // The two illustrated atlases share the same scale and paw anchor.
+  // Immutable external atlases: one decode per species, never generated in draw().
+  const livestockAtlases={barn:{name:'cow'},sheep:{name:'sheep'},coop:{name:'chicken'}};
+  const LIVESTOCK_READY=Promise.all(Object.values(livestockAtlases).map(atlas=>new Promise((resolve,reject)=>{
+    const image=new Image();atlas.image=image;image.decoding='async';
+    image.onload=()=>image.naturalWidth===1024&&image.naturalHeight===512?resolve():reject(new Error('Неверная сетка спрайтов: '+atlas.name));
+    image.onerror=()=>reject(new Error('Не удалось загрузить assets/animals/'+atlas.name+'.webp'));
+    image.src='assets/animals/'+atlas.name+'.webp';
+  })));
   const dogAtlasPaths = ["assets/dog/dog-front.webp", "assets/dog/dog-rear.webp"];
   const dogFrames = [
     [[31,158,303,153,-9.24,-5.24,18.665,9.425],[399,158,297,153,-8.87,-5.24,18.295,9.425],[760,158,298,153,-8.932,-5.24,18.357,9.425],[1124,159,295,152,-8.809,-5.178,18.172,9.363],[42,403,276,282,-8.562,-13.186,17.002,17.371],[428,402,252,283,-7.084,-13.248,15.523,17.433],[754,401,289,284,-9.302,-13.31,17.802,17.494],[1152,402,252,283,-7.084,-13.248,15.523,17.433],[45,792,280,255,-8.378,-11.523,17.248,15.708],[408,815,280,232,-8.316,-10.106,17.248,14.291],[770,810,271,237,-8.316,-10.414,16.694,14.599],[1132,776,271,271,-8.316,-12.509,16.694,16.694]],
@@ -2238,7 +2246,7 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
       let minX=Math.floor(Math.min(...corners.map(p=>p.x))/CHUNK),maxX=Math.floor(Math.max(...corners.map(p=>p.x))/CHUNK),minY=Math.floor(Math.min(...corners.map(p=>p.y))/CHUNK),maxY=Math.floor(Math.max(...corners.map(p=>p.y))/CHUNK);
       minX=Math.max(WORLD_MIN,minX,Math.floor(this.camera.x/CHUNK)-4);maxX=Math.min(WORLD_MAX,maxX,Math.floor(this.camera.x/CHUNK)+4);
       minY=Math.max(WORLD_MIN,minY,Math.floor(this.camera.y/CHUNK)-4);maxY=Math.min(WORLD_MAX,maxY,Math.floor(this.camera.y/CHUNK)+4);
-      this._drawBounds=this._viewportBounds(center);this._coast(c,corners);
+      this._drawBounds=this._viewportBounds(center);
       const lands=[],objects=[],buildings=[],groundPaths=[];this._terrainVisible=[];
       const gx0=Math.floor(Math.min(...corners.map(p=>p.x))/16)-1,gx1=Math.ceil(Math.max(...corners.map(p=>p.x))/16)+1;
       const gy0=Math.floor(Math.min(...corners.map(p=>p.y))/16)-1,gy1=Math.ceil(Math.max(...corners.map(p=>p.y))/16)+1;
@@ -2246,7 +2254,7 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
       this._wilderness(objects,corners);
       for(let cy=minY;cy<=maxY;cy++)for(let cx=minX;cx<=maxX;cx++){const land=this._land(s,cx,cy);lands.push(land);this._ground(c,land);for(const o of land.objects||[])if(this._inViewport(o.x,o.y,o.w||1,o.h||1))objects.push({kind:'nature',data:o,depth:o.x+o.y+(o.w||1)+(o.h||1)-.2});for(const b of this._index.get(`${cx},${cy}`)||[]){const def=G.FC.BUILDINGS[b.type]||{};if(!this._inViewport(b.x,b.y,b.w||def.w||1,b.h||def.h||1))continue;buildings.push(b);if(this._isPath(b))groundPaths.push(b);else if(b.type==='gate')objects.push(...this._gateParts(b));else objects.push({kind:'building',data:b,depth:b.x+b.y+(b.w||def.w||1)+(b.h||def.h||1)});}}
       if(this.camera.zoom>=.5)for(const land of this._terrainVisible)this._terrainDetails(c,land.cx,land.cy);
-      this._roads(c,groundPaths);this._ownershipBoundary(c,s);const dispatcher=buildings.find(b=>b.id===this.selectedId&&b.type==='automation');if(dispatcher){const cx=Math.floor(dispatcher.x/16),cy=Math.floor(dispatcher.y/16);tile(c,cx*16,cy*16,16,16,'#d9e8a421','#dce4a3',1);}
+      this._coast(c,corners);this._roads(c,groundPaths);this._ownershipBoundary(c,s);const dispatcher=buildings.find(b=>b.id===this.selectedId&&b.type==='automation');if(dispatcher){const cx=Math.floor(dispatcher.x/16),cy=Math.floor(dispatcher.y/16);tile(c,cx*16,cy*16,16,16,'#d9e8a421','#dce4a3',1);}
       const selectedRoad=groundPaths.find(b=>b.id===this.selectedId);
       if(selectedRoad)tile(c,selectedRoad.x,selectedRoad.y,1,1,'#fae56d24','#fae681',2);
       const selectedGate=buildings.find(b=>b.id===this.selectedId&&b.type==='gate');
@@ -2307,23 +2315,92 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
       }c.restore();
     }
     _coast(c,corners){
-      const high=(WORLD_MAX+1)*CHUNK,lo=Math.floor(Math.min(...corners.map(p=>p.y))/4)*4-20,hi=Math.ceil(Math.max(...corners.map(p=>p.y))/4)*4+20;
-      const far=Math.max(high+80,...corners.map(p=>p.x+30)),left=Math.min(WORLD_MIN*CHUNK-24,...corners.map(p=>p.x-20));
+      const high=(WORLD_MAX+1)*CHUNK;
+      const lo=Math.floor(Math.min(...corners.map(p=>p.y))/4)*4-20,hi=Math.ceil(Math.max(...corners.map(p=>p.y))/4)*4+20;
+      const far=Math.max(high+90,...corners.map(p=>p.x+30)),left=Math.min(WORLD_MIN*CHUNK-40,...corners.map(p=>p.x-20));
+      // Time is deliberately excluded: surf moves the cached paths, not the terrain.
       const key=[lo,hi,far,left,this._drawBounds.left,this._drawBounds.top,this._drawBounds.right,this._drawBounds.bottom].join('|');
       if(this._coastKey!==key){
         const path=points=>{const p=new Path2D();points.forEach(([x,y],i)=>{const q=pt(x,y);if(!i)p.moveTo(q.x,q.y);else p.lineTo(q.x,q.y)});p.closePath();return p;};
-        const shore=[];for(let y=lo;y<=hi;y+=2)shore.push([high+4+Math.sin(y*.09)*1.1+Math.sin(y*.35)*.3,y]);
+        const segment=(p,a,b)=>{const u=pt(...a),v=pt(...b);p.moveTo(u.x,u.y);p.lineTo(v.x,v.y);};
+        const rect=(x,y,w,h)=>path([[x,y],[x+w,y],[x+w,y+h],[x,y+h]]);
+        const shore=[],fringe=[];
+        const shoreline=y=>high+14+Math.sin(y*.09)*1.8+Math.sin(y*.31)*.55;
+        for(let y=lo;y<=hi;y+=1.5){shore.push([shoreline(y),y]);fringe.push([high+5.6+Math.sin(y*.21)*.5,y]);}
         const strip=(a,b)=>path([...shore.map(([x,y])=>[x+a,y]),...shore.map(([x,y])=>[x+b,y]).reverse()]);
-        const sea=path([[high,lo],[far,lo],[far,hi],[high,hi]]),sand=path([[high,lo],...shore,[high,hi]]);
-        const gravel=path([[left,high+1],[high+1,high+1],[high+1,high+6],[left,high+6]]),road=path([[left,high+1.8],[high+.8,high+1.8],[high+.8,high+5.2],[left,high+5.2]]);
-        const marks=new Path2D();for(let x=Math.floor(left/4)*4;x<high-.5;x+=4){const a=pt(x,high+3.5),b=pt(Math.min(x+1.7,high-.5),high+3.5);marks.moveTo(a.x,a.y);marks.lineTo(b.x,b.y);}
-        const waves=new Path2D(),shells=new Path2D();
-        for(let y=lo;y<=hi;y+=5){for(let x=high+7;x<far;x+=7){const q=pt(x+hash(x,y,31)*3,y+hash(y,x,71)*2);if(q.x<this._drawBounds.left-30||q.x>this._drawBounds.right+30||q.y<this._drawBounds.top-20||q.y>this._drawBounds.bottom+20)continue;const n=5+hash(x,y,19)*7;waves.moveTo(q.x-n,q.y);waves.quadraticCurveTo(q.x,q.y+1.5,q.x+n,q.y-.3);}}
-        for(let y=lo;y<=hi;y+=2.5){const q=pt(high+.6+hash(y,3,81)*1.2,y);shells.moveTo(q.x+1.2,q.y);shells.ellipse(q.x,q.y,.65+hash(y,7,11)*.55,.45,0,0,Math.PI*2);}
-        this._coastPaths={sea,sand,wet:strip(-.55,.25),shallow:strip(.25,2.7),foam:strip(.1,.17),gravel,road,marks,waves,shells};this._coastKey=key;
+        const sea=rect(high,lo,far-high,hi-lo),sand=path([[high,lo],...shore,[high,hi]]);
+        const transition=path([[high,lo],...fringe,[high,hi]]);
+        const waves=new Path2D(),shells=new Path2D(),dunes=new Path2D(),grass=new Path2D();
+        for(let y=lo;y<=hi;y+=5)for(let x=high+19;x<far;x+=7){
+          const q=pt(x+hash(x,y,31)*3,y+hash(y,x,71)*2);
+          if(q.x<this._drawBounds.left-30||q.x>this._drawBounds.right+30||q.y<this._drawBounds.top-20||q.y>this._drawBounds.bottom+20)continue;
+          const n=5+hash(x,y,19)*7;waves.moveTo(q.x-n,q.y);waves.quadraticCurveTo(q.x,q.y+1.5,q.x+n,q.y-.3);
+        }
+        for(let y=lo;y<=hi;y+=2.5){
+          const dryWidth=shoreline(y)-high-7;
+          for(let j=0;j<2;j++){const q=pt(high+5.9+hash(y,j,81)*dryWidth,y+hash(y,j,16));shells.moveTo(q.x+1.2,q.y);shells.ellipse(q.x,q.y,.6+hash(y,j,11)*.5,.4,0,0,Math.PI*2);}
+          if(hash(y,13,8)>.45){const a=pt(high+6.5+hash(y,1,9)*3,y),b=pt(high+7.6+hash(y,1,9)*3,y+.12);dunes.moveTo(a.x,a.y);dunes.quadraticCurveTo((a.x+b.x)/2,a.y+.9,b.x,b.y);}
+          const q=pt(high+.8+hash(y,17,3)*2.4,y);grass.moveTo(q.x-1.7,q.y);grass.lineTo(q.x-.3,q.y-2);grass.lineTo(q.x+.6,q.y);grass.lineTo(q.x+1.8,q.y-1.1);
+        }
+        // Four lanes lead into one continuous paved terminal area.
+        const roadY=high+2,roadWidth=9.2,lotX=high-31,lotRight=high-.8,lotTop=high+1,lotBottom=high+30;
+        const gravel=rect(left,roadY-.7,lotX+3-left,roadWidth+1.4);
+        const road=rect(left,roadY,lotX+3-left,roadWidth);
+        const lotApron=rect(lotX-.55,lotTop-.55,lotRight-lotX+1.1,lotBottom-lotTop+1.1);
+        const parking=rect(lotX,lotTop,lotRight-lotX,lotBottom-lotTop);
+        const laneDashes=new Path2D(),centerLines=new Path2D(),edgeLines=new Path2D(),bayLines=new Path2D(),stops=new Path2D(),arrows=new Path2D(),curbs=new Path2D();
+        for(let x=Math.floor(left/4)*4;x<lotX-.8;x+=4)for(const y of [roadY+2.2,roadY+7])segment(laneDashes,[x,y],[Math.min(x+1.8,lotX-.8),y]);
+        for(const y of [roadY+4.45,roadY+4.75])segment(centerLines,[left,y],[lotX-.8,y]);
+        for(const y of [roadY+.15,roadY+roadWidth-.15])segment(edgeLines,[left,y],[lotX-.55,y]);
+        // Do not draw a curb across the road entrance.
+        segment(curbs,[lotX,lotTop],[lotRight,lotTop]);segment(curbs,[lotRight,lotTop],[lotRight,lotBottom]);segment(curbs,[lotRight,lotBottom],[lotX,lotBottom]);segment(curbs,[lotX,lotBottom],[lotX,roadY+roadWidth+.25]);
+        const spaces=[],bayX=high-25,bayWidth=1.45,bayDepth=4.2;
+        for(let row=0;row<2;row++){
+          const y=high+(row===0?12.2:23),back=row===0?y:y+bayDepth;
+          segment(bayLines,[bayX,back],[bayX+15*bayWidth,back]);
+          for(let i=0;i<=15;i++)segment(bayLines,[bayX+i*bayWidth,y],[bayX+i*bayWidth,y+bayDepth]);
+          for(let i=0;i<15;i++){
+            const x=bayX+i*bayWidth;spaces.push({id:row*15+i+1,x,y,w:bayWidth,h:bayDepth,row});
+            const stopY=row===0?y+.28:y+bayDepth-.28;stops.addPath(rect(x+.23,stopY-.09,bayWidth-.46,.18));
+          }
+        }
+        for(let x=bayX+1;x<bayX+15*bayWidth-1;x+=3.7)segment(laneDashes,[x,high+19.7],[x+1.5,high+19.7]);
+        const arrow=(x,y,dir)=>{segment(arrows,[x-dir*1.2,y],[x+dir*1.1,y]);segment(arrows,[x+dir*1.1,y],[x+dir*.5,y-.45]);segment(arrows,[x+dir*1.1,y],[x+dir*.5,y+.45]);};
+        for(const [y,dir]of [[roadY+1.1,1],[roadY+3.3,1],[roadY+5.9,-1],[roadY+8.1,-1]])arrow(lotX-5,y,dir);
+        arrow(high-20,high+18.2,1);arrow(high-9,high+21.2,-1);
+        this._parkingSpaces=spaces;
+        this._coastLayout={laneCount:4,spaces:30,lot:{x:lotX,y:lotTop,w:lotRight-lotX,h:lotBottom-lotTop},road:{y:roadY,w:roadWidth,end:lotX+3}};
+        this._coastPaths={sea,sand,transition,wet:strip(-1.3,.45),shallow:strip(-.3,4.5),surge:strip(-.45,.9),foam:strip(-.5,-.45),gravel,road,lotApron,parking,laneDashes,centerLines,edgeLines,bayLines,stops,arrows,curbs,waves,shells,dunes,grass};
+        this._coastKey=key;
       }
-      const p=this._coastPaths;c.save();c.fillStyle=this.theme==='dark'?'#285c67':'#448f9e';c.fill(p.sea);c.fillStyle=this.theme==='dark'?'#367d82':'#62b5b0';c.fill(p.shallow);c.fillStyle=this.theme==='dark'?'#af9567':'#e4cf96';c.fill(p.sand);c.fillStyle=this.theme==='dark'?'#8c8d70':'#b7bda0';c.fill(p.wet);c.fillStyle='#eaf2d2bb';c.fill(p.foam);
-      c.fillStyle=this.theme==='dark'?'#6a6956':'#a4a58b';c.fill(p.gravel);c.fillStyle=this.theme==='dark'?'#424a49':'#626c69';c.fill(p.road);c.strokeStyle='#d7d3b6';c.lineWidth=1.5;c.stroke(p.marks);c.strokeStyle=this.theme==='dark'?'#8ec4c044':'#d4eee55c';c.lineWidth=.7;c.stroke(p.waves);c.fillStyle='#eee0b6b0';c.fill(p.shells);c.restore();
+      const p=this._coastPaths,dark=this.theme==='dark',sandInk=dark?'#af9567':'#e4cf96';
+      c.save();c.fillStyle=dark?'#285c67':'#448f9e';c.fill(p.sea);c.fillStyle=dark?'#367d82':'#62b5b0';c.fill(p.shallow);c.fillStyle=sandInk;c.fill(p.sand);
+      if(this._shoreBlendKey!==this.theme+'|'+key){
+        // Normal to the isometric lines of constant world X; the blend has
+        // the same width along the entire coast instead of varying with Y.
+        const a=pt(high,0),k=5*870/1066,gradient=c.createLinearGradient(a.x,a.y,a.x+15*k,a.y+29*k);
+        gradient.addColorStop(0,'#88b94f');gradient.addColorStop(.35,dark?'#a1ad67':'#b3bd70');gradient.addColorStop(.75,dark?'#afa16b':'#d4c68c');gradient.addColorStop(1,sandInk);
+        this._shoreBlend=gradient;this._shoreBlendKey=this.theme+'|'+key;
+      }
+      c.fillStyle=this._shoreBlend;c.fill(p.transition);c.strokeStyle=dark?'#82915488':'#929e5790';c.lineWidth=.55;c.stroke(p.grass);
+      c.strokeStyle='#a89b6b45';c.lineWidth=.6;c.stroke(p.dunes);c.fillStyle='#f0dfb095';c.fill(p.shells);
+      c.fillStyle=dark?'#8c8d70':'#b5baa0';c.fill(p.wet);
+      // A gentle 9.5-second wash, at most 0.22 of a tile in either direction.
+      // Neither the beach, parking nor their cached geometry changes per frame.
+      const phase=Math.sin(this._time*Math.PI*2/9.5),wash=.22*phase;this._coastTide=wash;
+      c.save();c.translate(wash*29,wash*15);c.fillStyle=dark?'#458d91':'#73bbb7';c.fill(p.surge);c.globalAlpha=.48+.09*phase;c.fillStyle='#edf3de';c.fill(p.foam);c.restore();
+      c.strokeStyle=dark?'#8ec4c044':'#d4eee55c';c.lineWidth=.7;c.stroke(p.waves);
+      c.fillStyle=dark?'#6a6956':'#a4a58b';c.fill(p.gravel);c.fillStyle=dark?'#8a8872':'#c2c2a9';c.fill(p.lotApron);
+      c.fillStyle=dark?'#424a49':'#626c69';c.fill(p.road);c.fill(p.parking);
+      c.strokeStyle='#d9dfd3';c.lineWidth=1.1;c.stroke(p.laneDashes);c.strokeStyle='#d8c77e';c.lineWidth=.95;c.stroke(p.centerLines);
+      c.strokeStyle='#d8dbce';c.lineWidth=.85;c.stroke(p.edgeLines);c.strokeStyle='#ede9d5';c.lineWidth=.9;c.stroke(p.bayLines);c.stroke(p.arrows);
+      c.fillStyle=dark?'#9c9b87':'#c6c3a9';c.fill(p.stops);c.strokeStyle=dark?'#bbbba3':'#eeead4';c.lineWidth=1.3;c.stroke(p.curbs);
+      if(this.camera.zoom>=.55){
+        c.save();c.transform(29,15,-29,15,0,0);c.fillStyle='#d4d8c7';c.textAlign='center';c.textBaseline='middle';c.font='.38px Arial,sans-serif';
+        for(const bay of this._parkingSpaces)c.fillText(String(bay.id),bay.x+bay.w/2,bay.y+(bay.row===0?1.25:bay.h-1.25));c.restore();
+      }
+      const sign=pt(high-29.6,high+1.1);line(c,[sign,{x:sign.x,y:sign.y-16}],'#8d8d78',1.5);round(c,sign.x-6,sign.y-25,12,13,1.4,'#3f7283','#dce1cc',.7);c.font='bold 9px Arial';c.textAlign='center';c.fillStyle='#f2efdc';c.fillText('P',sign.x,sign.y-15.2);
+      c.restore();
     }
     _incident(c,b){
       if(!b.incident)return;const p=pt(b.x+b.w*.55,b.y+b.h*.55,55);
@@ -2347,7 +2424,7 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
         for(let gy=minY;gy<=maxY;gy++)for(let gx=minX;gx<=maxX;gx++){
           if((gx+.2)*spacing>low&&(gx+.8)*spacing<high&&(gy+.2)*spacing>low&&(gy+.8)*spacing<high)continue;
           const x=(gx+.2+hash(gx,gy,seed+611)*.6)*spacing,y=(gy+.2+hash(gx,gy,seed+877)*.6)*spacing;
-          if(x>=high-.65||y>=high-.65&&y<high+8||x>low&&x<high&&y>low&&y<high||!this._inViewport(x,y))continue;
+          if(x>=high-.65||y>=high-.65&&y<high+14||x>high-35&&x<high+3&&y>high-2&&y<high+34||x>low&&x<high&&y>low&&y<high||!this._inViewport(x,y))continue;
           this._wildernessObjects.push({kind:'wilderness',data:{x,y,variant:hash(gx,gy,seed+1949),scale:.95+hash(gx,gy,seed+1709)*.55},depth:x+y+.1});
         }
       }
@@ -2755,7 +2832,7 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
       if(cfg.animals!==false&&['barn','coop','sheep'].includes(b.type)){
         const m=new BuildingMesh(c,b,d.w,d.h);
         const chicken=b.type==='coop',W=d.w-.28,H=d.h-.28;
-        for(let i=0;i<(chicken?3:2);i++)m.sprite(.14+W*(.17+i*(chicken?.22:.32)),.14+H*(.78+(i%2)*.06),1,chicken?12:17,18,()=>this._animal(c,b.type,{x:0,y:0},i+(b.rotation||0)));
+        for(let i=0;i<(chicken?3:2);i++)m.sprite(.14+W*(.17+i*(chicken?.22:.32)),.14+H*(.78+(i%2)*.06),1,chicken?12:17,chicken?18:26,()=>this._animal(c,b.type,{x:0,y:0},i+(b.rotation||0)));
         m.flush();
       }
     }
@@ -3698,7 +3775,7 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
         else openTrough(x+W*.73,y+H*.63,.39,.25,.6,5.1,'#c0ae69');
         for(let i=0;i<(chicken?3:2);i++){
           const ax=x+W*(.17+i*(chicken?.22:.32)),ay=y+H*(.78+(i%2)*.06);
-          m.sprite(ax,ay,1,chicken?12:17,18,()=>this._animal(c,type,{x:0,y:0},i+(b.rotation||0)));
+          m.sprite(ax,ay,1,chicken?12:17,chicken?18:26,()=>this._animal(c,type,{x:0,y:0},i+(b.rotation||0)));
         }
         if(chicken){m.box(x+.18,y+H*.57,.22,.18,.6,1.1,wood);m.cylinder(x+.29,y+H*.66,.066,1.1,3.0,'#b9c4ac',10);}
         // Gate posts align with the open run access.
@@ -3875,32 +3952,16 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
       }
     }
     _animal(c,type,p,i){
-      const t=this._time,dir=Math.sin(t*.17+i)>0?1:-1,step=Math.sin(t*2+i)*.65;
-      c.save();c.translate(p.x,p.y);c.scale(dir,1);ellipse(c,0,2,type==='coop'?6:12,2.6,'#24452c30');
-      if(type==='coop'){
-        for(const side of [-1,1]){const x=side*2;line(c,[{x,y:-1},{x:x+side*step,y:3},{x:x+side*step+1.8,y:3.3}],'#b77b21',.8);}
-        polygon(c,[{x:-4,y:-3},{x:-9,y:-10},{x:-7,y:-11},{x:-3,y:-6},{x:-7,y:-12},{x:-4,y:-11},{x:-1,y:-5}],'#c7a876','#876c4155',.5);
-        ellipse(c,0,-4,6.2,4.3,'#f1ddb0');ellipse(c,-1,-4.5,3.6,2.7,'#e6c994');
-        for(let k=0;k<4;k++)line(c,[{x:-3+k,y:-5},{x:-2+k,y:-2.7}],'#bfa271',.45);
-        ellipse(c,3.3,-6,2.3,3.4,'#f4e5bf');ellipse(c,4.7,-8.2,2.9,2.8,'#f8e9c7');
-        for(let k=0;k<3;k++)ellipse(c,3.3+k,-10.8-(k%2)*.7,.9,1.1,'#d64132');ellipse(c,5,-5.7,.8,1.2,'#c53d32');
-        polygon(c,[{x:6.8,y:-8.6},{x:9.3,y:-7.8},{x:6.7,y:-7}],'#e3a735','#a46e28',.35);
-        ellipse(c,5.5,-8.8,.65,.7,'#443528');ellipse(c,5.7,-9,.2,.2,'#fff9df');
-      }else{
-        const sheep=type==='sheep',skin=sheep?'#a8946e':'#e6c594';
-        // Far legs and tail precede the body, near legs attach at the lower contour.
-        for(const x of [-5,5]){line(c,[{x,y:-3},{x:x-step,y:3}],'#8c8167',1.4);line(c,[{x:x-step-.6,y:3},{x:x-step+.8,y:3}],'#4b493d',1.3);}
-        line(c,[{x:-9,y:-6},{x:-12,y:-4},{x:-12+Math.sin(t*1.3+i),y:-1}],'#9a8761',.8);ellipse(c,-12+Math.sin(t*1.3+i),-.5,.8,1.3,sheep?'#dfd1ac':'#625c46');
-        ellipse(c,0,-5.5,10,5.8,sheep?'#d2c7a8':'#f4e8cd');
-        if(sheep){for(let row=0;row<3;row++)for(let col=0;col<6;col++){const x=-7+col*2.7+(row%2)*.8,y=-8+row*2.7;ellipse(c,x,y,2.3,2.2,row===0?'#fff0d0':'#e6d9b7');line(c,[{x:x-.7,y:y+.4},{x:x+.1,y:y+.8},{x:x+.9,y:y+.3}],'#baa98b70',.35);}}
-        else{ellipse(c,-4,-7,3,2.5,'#605f4c');ellipse(c,2,-3.5,2.1,2,'#75745c');ellipse(c,5,-8,2.1,1.6,'#555c49');ellipse(c,-1,-.2,2.5,1.2,'#d6a39a');}
-        for(const x of [-6,5]){line(c,[{x,y:-1.7},{x:x+step,y:3.8}],skin,1.8);round(c,x+step-1,3,2.4,1.5,.4,'#494738');}
-        ellipse(c,8,-5.8,3.8,4.4,skin);ellipse(c,10,-4.5,3.5,2.2,sheep?'#7d765e':'#d7ac91');
-        ellipse(c,7,-9.2,2.5,1.1,sheep?'#b7a17a':'#d3b182');ellipse(c,10,-9,2.1,1,skin);
-        if(!sheep){line(c,[{x:7,y:-9},{x:6.4,y:-11.3},{x:7.7,y:-10.6}],'#d8d3ad',.85);line(c,[{x:10,y:-9},{x:10.6,y:-11},{x:9.3,y:-10.5}],'#d8d3ad',.85);}
-        ellipse(c,9,-7,.6,.65,'#393a2d');ellipse(c,9.2,-7.2,.18,.18,'#fff9d8');ellipse(c,11.2,-4.8,.4,.3,'#78554a');line(c,[{x:9.5,y:-3.3},{x:11,y:-3.2}],'#826651',.45);
-        if(!sheep){line(c,[{x:6,y:-5},{x:7,y:-2}],'#aa6437',1);ellipse(c,7,-1.7,.8,1,'#d6a83e');}
-      }
+      const atlas=livestockAtlases[type];
+      if(!atlas?.image?.naturalWidth)return;
+      const t=Math.max(0,this._time||0),dir=Math.sin(t*.17+i)>0?1:-1;
+      // Keep the old 2-radian/second gait and individual phase offsets.
+      // All eight frames share scale, baseline and a fixed cell grid.
+      const frame=Math.floor((((t*2+i)/(Math.PI*2))%1+1)%1*8);
+      const size=type==='coop'?18:30;
+      c.save();c.translate(p.x,p.y);c.scale(dir,1);
+      ellipse(c,0,2,type==='coop'?6:12,2.6,'#24452c30');
+      c.drawImage(atlas.image,(frame%4)*256,Math.floor(frame/4)*256,256,256,-size/2,4-size*234/256,size,size);
       c.restore();
     }
     _roads(c,visible){
@@ -4094,7 +4155,7 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
       }
     }
   }
-  FarmWorld.ready=Promise.all([TREE_READY,NATURE_READY]);FarmWorld.natureFrames=NATURE_FRAMES;FarmWorld.treeFrames=TREE_FRAMES;FarmWorld.treeVariant=treeVariant;
+  FarmWorld.ready=Promise.all([TREE_READY,NATURE_READY,LIVESTOCK_READY]);FarmWorld.natureFrames=NATURE_FRAMES;FarmWorld.treeFrames=TREE_FRAMES;FarmWorld.treeVariant=treeVariant;
   FarmWorld.buildingImageName=buildingImageName;
   FarmWorld.buildingImageCandidates=b=>{
     const level=Math.max(1,Math.floor(Number(b.level)||1)),rotation=((Math.floor(Number(b.rotation)||0)%4)+4)%4;
