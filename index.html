@@ -1913,8 +1913,8 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
   const LIVESTOCK_READY=Promise.all(Object.values(livestockAtlases).map(atlas=>new Promise((resolve,reject)=>{
     const image=new Image();atlas.image=image;image.decoding='async';
     image.onload=()=>image.naturalWidth===1024&&image.naturalHeight===512?resolve():reject(new Error('Неверная сетка спрайтов: '+atlas.name));
-    image.onerror=()=>reject(new Error('Не удалось загрузить assets/animals/'+atlas.name+'.webp'));
-    image.src='assets/animals/'+atlas.name+'.webp';
+    image.onerror=()=>reject(new Error('Не удалось загрузить assets/animals/'+atlas.name+'-idle.webp'));
+    image.src='assets/animals/'+atlas.name+'-idle.webp';
   })));
   const dogAtlasPaths = ["assets/dog/dog-front.webp", "assets/dog/dog-rear.webp"];
   const dogFrames = [
@@ -2828,13 +2828,9 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
       const chimney=SPRITE_CHIMNEYS[record.name];
       if(chimney&&!ghost)this._chimneyPuffs(c,x+sw*chimney[0],y+sh*chimney[1],sw/1024,b);
 
-      // Exported source buildings intentionally omit living animals.
-      if(cfg.animals!==false&&['barn','coop','sheep'].includes(b.type)){
-        const m=new BuildingMesh(c,b,d.w,d.h);
-        const chicken=b.type==='coop',W=d.w-.28,H=d.h-.28;
-        for(let i=0;i<(chicken?3:2);i++)m.sprite(.14+W*(.17+i*(chicken?.22:.32)),.14+H*(.78+(i%2)*.06),1,chicken?12:17,chicken?18:26,()=>this._animal(c,b.type,{x:0,y:0},i+(b.rotation||0)));
-        m.flush();
-      }
+      // Compose animals separately; foreground fence and shelter faces
+      // remove only the animated pixels that are geometrically behind them.
+      if(cfg.animals!==false&&['barn','coop','sheep'].includes(b.type))this._livestockSpriteLayer(c,b,d);
     }
     _chimneyPuffs(c,x,y,pixelScale,b){
       // A single tiny cached texture; no gradient allocation or particle array per frame.
@@ -3951,17 +3947,68 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
         c.restore();
       }
     }
+    _livestockSpriteLayer(c,b,d){
+      // The PNG remains intact. Only animated pixels are masked by the same
+      // 3D fence/wall geometry that produced the original building exports.
+      this._livestockLayers ||= new Map();
+      const key=[b.type,b.rotation||0,d.w,d.h].join('|');
+      let layer=this._livestockLayers.get(key);
+      if(!layer){
+        const rotation=b.rotation||0,local={...b,x:0,y:0},m=new BuildingMesh(c,local,d.w,d.h);
+        const x=.14,y=.14,W=d.w-.28,H=d.h-.28,chicken=b.type==='coop',cow=b.type==='barn';
+        const points=[];
+        for(let i=0;i<(chicken?3:2);i++){
+          const ax=x+W*(.17+i*(chicken?.22:.32)),ay=y+H*(.78+(i%2)*.06);
+          const q=pt(...m.world([ax,ay,1]));points.push(q);
+        }
+        const sizes=chicken?[8,11]:cow?[16,24]:[12,18];
+        const left=Math.floor(Math.min(...points.map(p=>p.x))-sizes[0]-2),top=Math.floor(Math.min(...points.map(p=>p.y))-sizes[1]-3);
+        const right=Math.ceil(Math.max(...points.map(p=>p.x))+sizes[0]+2),bottom=Math.ceil(Math.max(...points.map(p=>p.y))+7);
+        const art=document.createElement('canvas'),resolution=3;
+        art.width=(right-left)*resolution;art.height=(bottom-top)*resolution;
+        const g=art.getContext('2d');m.c=g;
+        // Shelters hide animals only where a wall or roof is actually in front.
+        const sw=W*(chicken?.62:.67),sh=H*.44,bx=x+(chicken?.33:.095),by=y+.09,height=chicken?22:cow?29:25;
+        m.box(bx,by,sw,sh,chicken?8:2.6,height);
+        m.gableMaterial={bounds:{x:bx,y:by,w:sw,h:sh}};
+        m.roof(bx-.045,by-.045,sw+.09,sh+.09,height,chicken?7.5:cow?9.5:8.5);
+        const post=(px,py,high=12)=>{m.box(px-.023,py-.023,.046,.046,.5,high);m.box(px-.032,py-.032,.064,.064,high,high+.7);};
+        for(const yy of [y+.025,y+H-.025])for(let i=0;i<=8;i++){
+          if(yy>y+H/2&&i>=3&&i<=5)continue;
+          post(x+W*i/8,yy);
+        }
+        for(const xx of [x+.025,x+W-.025])for(let j=1;j<5;j++)post(xx,y+H*j/5);
+        const rail=(a,b,xx,yy,z)=>m.face([[a,b,z],[xx,yy,z],[xx,yy,z+1],[a,b,z+1]],null,null,0,true);
+        for(const z of [4.5,9]){
+          rail(x,y+.025,x+W,y+.025,z);rail(x,y+.025,x,y+H-.025,z);rail(x+W,y+.025,x+W,y+H-.025,z);
+          rail(x,y+H-.025,x+W*.34,y+H-.025,z);rail(x+W*.67,y+H-.025,x+W,y+H-.025,z);
+        }
+        for(const xx of [x+W*.34,x+W*.67])m.box(xx-.027,y+H-.05,.054,.054,.6,14);
+        m.faces=m.faces.filter(f=>points.some(p=>f.maxX>=p.x-sizes[0]&&f.minX<=p.x+sizes[0]&&f.maxY>=p.y-sizes[1]&&f.minY<=p.y+5));
+        for(const f of m.faces)f.draw=()=>{
+          g.save();g.globalCompositeOperation='destination-out';g.fillStyle='#000';g.fillRect(left,top,right-left,bottom-top);g.restore();
+        };
+        for(let i=0;i<points.length;i++)m.sprite(x+W*(.17+i*(chicken?.22:.32)),y+H*(.78+(i%2)*.06),1,sizes[0],sizes[1],()=>this._animal(g,b.type,{x:0,y:0},i+rotation));
+        m.prepareVector=true;
+        layer={art,g,m,left,top,resolution};
+        if(this._livestockLayers.size>=16)this._livestockLayers.delete(this._livestockLayers.keys().next().value);
+        this._livestockLayers.set(key,layer);
+      }
+      const {art,g,m,left,top,resolution}=layer;
+      g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,art.width,art.height);
+      g.setTransform(resolution,0,0,resolution,-left*resolution,-top*resolution);m.flush();
+      const origin=pt(b.x,b.y);c.drawImage(art,origin.x+left,origin.y+top,art.width/resolution,art.height/resolution);
+    }
     _animal(c,type,p,i){
-      const atlas=livestockAtlases[type];
-      if(!atlas?.image?.naturalWidth)return;
-      const t=Math.max(0,this._time||0),dir=Math.sin(t*.17+i)>0?1:-1;
-      // Keep the old 2-radian/second gait and individual phase offsets.
-      // All eight frames share scale, baseline and a fixed cell grid.
-      const frame=Math.floor((((t*2+i)/(Math.PI*2))%1+1)%1*8);
-      const size=type==='coop'?18:30;
+      const atlas=livestockAtlases[type];if(!atlas?.image?.naturalWidth)return;
+      // Species-specific idle poses. No gait and no periodic whole-body flips.
+      const t=Math.max(0,this._time||0),dir=i%2?1:-1;
+      const size=type==='coop'?11:type==='sheep'?21:30;
+      const timing=type==='coop'?[7.8,2.4]:type==='sheep'?[10.2,3.4]:[6.8,3.2];
+      const clock=(t+i*2.37)%timing[0],frame=clock<timing[1]?Math.min(7,Math.floor(clock/timing[1]*8)):0;
       c.save();c.translate(p.x,p.y);c.scale(dir,1);
-      ellipse(c,0,2,type==='coop'?6:12,2.6,'#24452c30');
-      c.drawImage(atlas.image,(frame%4)*256,Math.floor(frame/4)*256,256,256,-size/2,4-size*234/256,size,size);
+      ellipse(c,0,2,type==='coop'?3.7:type==='sheep'?8.2:12,type==='coop'?1.5:2.3,'#24452c30');
+      c.drawImage(atlas.image,frame%4*256,Math.floor(frame/4)*256,256,256,-size/2,4-size*234/256,size,size);
       c.restore();
     }
     _roads(c,visible){
