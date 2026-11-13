@@ -2033,13 +2033,27 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
     const x=.14,y=.14,W=def.w-.28,H=def.h-.28;
     const project=(u,v,z)=>{const q=pt(...mesh.world([u,v,z]));return [(q.x-placement.x)*width/placement.width,(q.y-placement.y)*height/placement.height];};
     const edge=(a,b)=>{
-      // Gaps only: do not include the wooden horizontal rails themselves.
-      for(const [lo,hi]of [[.7,4.4],[5.6,8.9],[10.1,11.8]]){
+      // Cover the whole fence plane. The color test preserves actual wood;
+      // geometric rail bands cannot be excluded because the matte overlaps them.
+      for(const [lo,hi]of [[.25,14.5]]){
         const p=[project(...a,lo),project(...b,lo),project(...b,hi),project(...a,hi)];
         g.beginPath();g.moveTo(...p[0]);for(let i=1;i<4;i++)g.lineTo(...p[i]);g.closePath();g.fill();
       }
     };
     g.fillStyle='#fff';edge([x,y+.025],[x+W,y+.025]);edge([x+.025,y],[x+.025,y+H]);edge([x+W-.025,y],[x+W-.025,y+H]);edge([x,y+H-.025],[x+W,y+H-.025]);
+    // Some rear fence projections cross the shelter silhouette. Never let
+    // background cleanup touch its walls, gables or roof highlights.
+    const chicken=match[1]==='coop',cow=match[1]==='barn';
+    const sw=W*(chicken?.62:.67),sh=H*.44,bx=x+(chicken?.33:.095),by=y+.09,roofHeight=chicken?22:cow?29:25;
+    const shelter=new BuildingMesh(g,{x:0,y:0,rotation:Number(match[2])},def.w,def.h);
+    shelter.box(bx,by,sw,sh,chicken?8:2.6,roofHeight);
+    shelter.gableMaterial={bounds:{x:bx,y:by,w:sw,h:sh}};
+    shelter.roof(bx-.045,by-.045,sw+.09,sh+.09,roofHeight,chicken?7.5:cow?9.5:8.5);
+    g.globalCompositeOperation='destination-out';g.lineWidth=3;
+    for(const face of shelter.faces){
+      const vertices=face.v.map(v=>{const q=pt(...v);return [(q.x-placement.x)*width/placement.width,(q.y-placement.y)*height/placement.height];});
+      g.beginPath();g.moveTo(...vertices[0]);for(let i=1;i<vertices.length;i++)g.lineTo(...vertices[i]);g.closePath();g.fill();g.stroke();
+    }
     try{
       const pixels=c.getImageData(0,0,width,height),zone=g.getImageData(0,0,width,height).data,data=pixels.data;
       let removed=0;
@@ -2047,7 +2061,7 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
         if(!zone[i+3]||!data[i+3])continue;
         const r=data[i],green=data[i+1],blue=data[i+2];
         // Pale neutral matte, not golden wood, grass, roof or dark outlines.
-        if(r>205&&green>195&&blue>175&&r-green<35&&green-blue<40){
+        if(r>150&&green>145&&blue>125&&r>=green&&r-green<30&&green-blue<40){
           data[i+3]=Math.round(data[i+3]*(1-zone[i+3]/255));removed++;
         }
       }
