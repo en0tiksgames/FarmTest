@@ -4238,17 +4238,17 @@ const paths={
 };
 function ico(k,n=22){return '<svg width="'+n+'" height="'+n+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+(paths[k]||paths.leaf)+'"/></svg>';}
 function btn(label,action,p={},cls='',disabled=false,reason=''){return '<button class="btn '+cls+'" data-action="'+h(action)+'" data-p="'+h(JSON.stringify(p))+'"'+(disabled?' disabled':'')+(disabled&&reason?' title="'+h(reason)+'"':'')+'>'+label+'</button>';}
-function cost(c,check=true){return '<span class="cost">'+Object.entries(c||{}).filter(([k,v])=>v>0).map(([k,v])=>'<span class="'+(check&&(k==='coins'?state.coins:(state.items[k]||0))<v?'missing':'')+'">'+(k==='coins'?'🪙':FC.ITEMS[k]?.icon||'•')+' '+fmt(v)+'</span>').join('')+'</span>';}
-function goods(c,check=false){return '<div class="ingredients">'+Object.entries(c||{}).filter(([k,v])=>v>0).map(([k,v])=>'<span class="ingredient '+(check&&(state.items[k]||0)<v?'missing':'')+'" title="'+h(FC.ITEMS[k]?.name||k)+'">'+(FC.ITEMS[k]?.icon||'📦')+' '+fmt(v)+' '+h(FC.ITEMS[k]?.name||k)+'</span>').join('')+'</div>';}
+function cost(c,check=true){return '<span class="cost">'+Object.entries(c||{}).filter(([k,v])=>v>0).map(([k,v])=>'<span data-ui-key="cost:'+h(k)+'" class="'+(check&&(k==='coins'?state.coins:(state.items[k]||0))<v?'missing':'')+'">'+(k==='coins'?'🪙':FC.ITEMS[k]?.icon||'•')+' '+fmt(v)+'</span>').join('')+'</span>';}
+function goods(c,check=false){return '<div class="ingredients">'+Object.entries(c||{}).filter(([k,v])=>v>0).map(([k,v])=>'<span data-ui-key="goods:'+h(k)+'" class="ingredient '+(check&&(state.items[k]||0)<v?'missing':'')+'" title="'+h(FC.ITEMS[k]?.name||k)+'">'+(FC.ITEMS[k]?.icon||'📦')+' '+fmt(v)+' '+h(FC.ITEMS[k]?.name||k)+'</span>').join('')+'</div>';}
 function note(t,err=false){return '<p class="note '+(err?'danger':'')+'">'+h(t)+'</p>';}
 function header(title){return '<div class="row spread"><div><h2>'+h(title)+'</h2></div><button class="icon-btn panel-close" data-action="hidePanel" aria-label="Закрыть панель">'+ico('close',19)+'</button></div>';}
-function sectionTitle(t,side=''){return '<div class="section-title"><h3>'+h(t)+'</h3><span class="small">'+h(side)+'</span></div>';}
+function sectionTitle(t,side=''){return '<div data-ui-key="heading:'+h(t)+'" class="section-title"><h3>'+h(t)+'</h3><span class="small">'+h(side)+'</span></div>';}
 function stat(value,label){return '<div class="stat"><b class="value">'+value+'</b><span>'+h(label)+'</span></div>';}
 function progress(end,start=0,color=''){return '<div class="progress-track"><div class="progress-bar '+color+'" data-start="'+start+'" data-end="'+end+'" style="width:0%"></div></div>';}
 function remaining(end){return '<span data-time="'+end+'">…</span>';}
 const navs=[['farm','Ферма'],['map','Карта земель'],['build','Строительство'],['production','Производство'],['orders','Заказы'],['development','Развитие']];
 let state,world,section='farm',selectedId=null,selectedNature=null,selectedLand={cx:0,cy:0},category='crops',arranging=false,placement=null,modalOpen=false,modalCallback=null,pendingImport=null,lastRender=0,lastPointer=0,saveTimer=null,saveState='saved',saveMessage='',lastLevel=1,workerTab=false;
-let previousPanelHead='',previousPanelBody='',previousHud='';
+let previousPanelHead='',previousPanelBody='',previousHud='',previousPanelScope='',modalScope='';
 const preferences=FarmSaves.preferences();let sound=!!preferences.sound,audioContext=null,economyMode=!!preferences.economyMode;
 function savePreferences(patch){Object.assign(preferences,patch);FarmSaves.setPreferences(preferences);}
 let theme=preferences.theme==='light'?'light':'dark';
@@ -4262,7 +4262,7 @@ if(topState.loading&&!topState.loaded)return out+note('Загружаем фер
 if(!topState.loaded)return out+note('Откройте топ, чтобы загрузить участников.');
 out+=sectionTitle('Лучшие фермы','Участников: '+fmt(topState.total));
 if(topState.me)out+='<div class="card gold"><b>Ваша ферма · место '+fmt(topState.me.rank)+'</b><p class="note">'+h(topState.me.name)+' · уровень '+fmt(topState.me.level)+'</p></div>';
-for(const row of topState.items){const mine=topState.me?.id===row.id;out+='<div class="card '+(mine?'gold':'')+' topgap"><div class="row spread"><b class="farm-rank">#'+fmt(row.rank)+'</b><b class="farm-top-name">'+h(row.name)+'</b><span class="badge">Ур. '+fmt(row.level)+'</span></div><p class="note topgap">Опыт: '+fmt(row.xp)+' · Урожай: '+fmt(row.harvested)+' · Участков: '+fmt(row.lands)+'</p>'+btn(mine?'Открыть свою ферму':'Посмотреть ферму',mine?'leaveVisit':'visitFarm',mine?{}:{id:row.id},'secondary full topgap')+'</div>';}
+for(const row of topState.items){const mine=topState.me?.id===row.id;out+='<div data-ui-key="rank:'+h(row.id)+'" class="card '+(mine?'gold':'')+' topgap"><div class="row spread"><b class="farm-rank">#'+fmt(row.rank)+'</b><b class="farm-top-name">'+h(row.name)+'</b><span class="badge">Ур. '+fmt(row.level)+'</span></div><p class="note topgap">Опыт: '+fmt(row.xp)+' · Урожай: '+fmt(row.harvested)+' · Участков: '+fmt(row.lands)+'</p>'+btn(mine?'Открыть свою ферму':'Посмотреть ферму',mine?'leaveVisit':'visitFarm',mine?{}:{id:row.id},'secondary full topgap')+'</div>';}
 if(!topState.items.length)out+=note('В топе пока нет ферм.');
 if(topState.nextOffset!==null)out+=btn(topState.loading?'Загрузка…':'Показать ещё','moreTop',{},'ghost full topgap',topState.loading);
 return out;}
@@ -4287,12 +4287,12 @@ function renderNeighbors(){
  if(neighborsState.error)return out+note(neighborsState.error,true);
  const data=neighborsState.data;if(!data)return out+note('Загружаем соседей…');
  if(data.protectedUntil>Date.now())out+='<div class="card gold topgap">'+note('Ваша ферма под защитой ещё '+secs((data.protectedUntil-Date.now())/1000))+'</div>';
- if(data.incoming.length){out+=sectionTitle('Предложения соседства');for(const n of data.incoming)out+='<div class="card topgap"><b>'+h(n.name)+'</b>'+note('Уровень '+fmt(n.level))+btn('Принять','acceptNeighbor',{id:n.id},'secondary full')+'</div>';}
+ if(data.incoming.length){out+=sectionTitle('Предложения соседства');for(const n of data.incoming)out+='<div data-ui-key="request:'+h(n.id)+'" class="card topgap"><b>'+h(n.name)+'</b>'+note('Уровень '+fmt(n.level))+btn('Принять','acceptNeighbor',{id:n.id},'secondary full')+'</div>';}
  out+=sectionTitle('Ваши соседи',data.neighbors.length);
- for(const n of data.neighbors)out+='<div class="card topgap"><b>'+h(n.name)+'</b>'+note('Уровень '+fmt(n.level)+' · '+(n.online?'Сейчас играет':n.protectedUntil>Date.now()?'Защита ещё '+secs((n.protectedUntil-Date.now())/1000):'Можно проверить добычу'))+btn('Посетить ферму','visitFarm',{id:n.id},'secondary full')+'</div>';
+ for(const n of data.neighbors)out+='<div data-ui-key="neighbor:'+h(n.id)+'" class="card topgap"><b>'+h(n.name)+'</b>'+note('Уровень '+fmt(n.level)+' · '+(n.online?'Сейчас играет':n.protectedUntil>Date.now()?'Защита ещё '+secs((n.protectedUntil-Date.now())/1000):'Можно проверить добычу'))+btn('Посетить ферму','visitFarm',{id:n.id},'secondary full')+'</div>';
  if(!data.neighbors.length)out+=note('Пригласите знакомого по ссылке, примите заявку или откройте ферму по ссылке из общего Telegram-чата.');
  out+=sectionTitle('Последние набеги');
- for(const event of data.history){const mine=event.attacker===data.id,other=mine?event.victim:event.attacker;out+='<div class="card topgap"><b>'+h(mine?'Вы посетили «'+event.victim_name+'»':'К вам заходила ферма «'+event.attacker_name+'»')+'</b>'+note(new Date(event.at).toLocaleString('ru-RU'))+note((mine?'Получено':'Потеряно')+' золота: '+fmt(event.loot.coins)+' · грядок: '+fmt(event.loot.plots))+goods(event.loot.items)+btn('Посмотреть ферму','visitFarm',{id:other},'ghost full topgap')+'</div>';}
+ for(const event of data.history){const mine=event.attacker===data.id,other=mine?event.victim:event.attacker;out+='<div data-ui-key="raid:'+h(event.id||event.at+':'+event.attacker+':'+event.victim)+'" class="card topgap"><b>'+h(mine?'Вы посетили «'+event.victim_name+'»':'К вам заходила ферма «'+event.attacker_name+'»')+'</b>'+note(new Date(event.at).toLocaleString('ru-RU'))+note((mine?'Получено':'Потеряно')+' золота: '+fmt(event.loot.coins)+' · грядок: '+fmt(event.loot.plots))+goods(event.loot.items)+btn('Посмотреть ферму','visitFarm',{id:other},'ghost full topgap')+'</div>';}
  if(!data.history.length)out+=note('Набегов пока не было.');
  return out;
 }
@@ -4382,9 +4382,9 @@ function hidePanel(){clearActionFeedback();if($('panel').contains(document.activ
 function setSection(value){clearActionFeedback();section=value;selectedNature=null;selectedId=null;if(world)world.selectedId=null;if(value!=='build')cancelPlacement();showPanel();render(true);}
 function cancelPlacement(){clearActionFeedback();placement=null;if(world)world.setPlacement(null);$('placementBar').classList.add('hide');}
 function startPlacement(type,moveId){clearActionFeedback();const b=moveId?state.buildings.find(b=>b.id===moveId):null;placement={type,moveId:moveId||null,rotation:b?.rotation||0};world.setPlacement(placement);renderPlacement();if(innerWidth<981)hidePanel();reportAction(moveId?'Выберите новое место. Очереди и содержимое сохранятся.':'Нажмите на свободную землю для размещения.');}
-function renderPlacement(){if(!placement)return;const d=FC.BUILDINGS[placement.type];$('placementBar').classList.remove('hide');$('placementBar').innerHTML='<div class="row spread"><div><b>'+(placement.moveId?'Перенос: ':'Размещение: ')+h(d.name)+'</b><div class="tiny muted" style="margin-top:4px">Выберите клетку и нажмите для подтверждения. Зелёный контур — место доступно'+(placement.type==='gate'?' · Открытие '+gateOpeningArrows[placement.rotation]:'')+(!placement.moveId?' · Цена: '+fmt(FC.buildPreview(state,placement.type).cost.coins||0)+' монет':'')+(!placement.moveId&&!d.unique?' · Можно ставить подряд':'')+'</div></div><div class="row gap6"><button data-action="rotatePlacement" title="Поворот · R">↻ '+(placement.rotation*90)+'°</button><button data-action="cancelPlacement" title="Отмена · Escape">✕</button></div></div>';}
-function openModal(title,body,confirmLabel,callback,kind=''){clearActionFeedback();lastFrame=performance.now();modalOpen=true;modalCallback=callback||null;$('modalRoot').classList.remove('hide');$('modalRoot').innerHTML='<section class="modal" role="dialog" aria-modal="true" aria-label="'+h(title)+'"><div class="modal-head"><h2>'+h(title)+'</h2><button class="icon-btn" data-action="closeModal" aria-label="Закрыть">'+ico('close',20)+'</button></div><div class="modal-body">'+body+'</div><div class="modal-footer">'+btn(confirmLabel?'Отмена':'Понятно','closeModal',{},'ghost')+(confirmLabel?btn(h(confirmLabel),'confirmModal',{},kind):'')+'</div></section>';setTimeout(()=>$('modalRoot').querySelector('button')?.focus(),0);}
-function closeModal(){clearActionFeedback();lastFrame=performance.now();modalOpen=false;modalCallback=null;$('modalRoot').classList.add('hide');$('modalRoot').innerHTML='';}
+function renderPlacement(){if(!placement)return;const d=FC.BUILDINGS[placement.type];$('placementBar').classList.remove('hide');updateMarkup($('placementBar'),'<div class="row spread"><div><b>'+(placement.moveId?'Перенос: ':'Размещение: ')+h(d.name)+'</b><div class="tiny muted" style="margin-top:4px">Выберите клетку и нажмите для подтверждения. Зелёный контур — место доступно'+(placement.type==='gate'?' · Открытие '+gateOpeningArrows[placement.rotation]:'')+(!placement.moveId?' · Цена: '+fmt(FC.buildPreview(state,placement.type).cost.coins||0)+' монет':'')+(!placement.moveId&&!d.unique?' · Можно ставить подряд':'')+'</div></div><div class="row gap6"><button data-action="rotatePlacement" title="Поворот · R">↻ '+(placement.rotation*90)+'°</button><button data-action="cancelPlacement" title="Отмена · Escape">✕</button></div></div>');}
+function openModal(title,body,confirmLabel,callback,kind=''){clearActionFeedback();lastFrame=performance.now();const scope=title+':'+(confirmLabel||'')+':'+kind,reuse=modalOpen&&modalScope===scope;modalOpen=true;modalScope=scope;modalCallback=callback||null;$('modalRoot').classList.remove('hide');updateMarkup($('modalRoot'),'<section class="modal" role="dialog" aria-modal="true" aria-label="'+h(title)+'"><div class="modal-head"><h2>'+h(title)+'</h2><button class="icon-btn" data-action="closeModal" aria-label="Закрыть">'+ico('close',20)+'</button></div><div class="modal-body">'+body+'</div><div class="modal-footer">'+btn(confirmLabel?'Отмена':'Понятно','closeModal',{},'ghost')+(confirmLabel?btn(h(confirmLabel),'confirmModal',{},kind):'')+'</div></section>',!reuse);updateUITimers($('modalRoot'));if(reuse&&$('farmNameInput')&&$('farmNameCount'))$('farmNameCount').textContent=Array.from(FC.normalizeFarmName($('farmNameInput').value)).length;if(!reuse)setTimeout(()=>$('modalRoot').querySelector('button')?.focus(),0);}
+function closeModal(){clearActionFeedback();lastFrame=performance.now();modalOpen=false;modalCallback=null;$('modalRoot').classList.add('hide');updateMarkup($('modalRoot'),'',true);modalScope='';}
 function buildingTitle(b){if(FC.fenceLevel(b))return (b.type==='gate'?'Ворота':'Забор')+' · '+FC.FENCE_LEVELS[FC.fenceLevel(b)-1];if(FC.roadLevel(b))return 'Дорожка · '+FC.ROAD_LEVELS[FC.roadLevel(b)-1].name;if(b.type==='plot'&&b.plant)return FC.CROPS[b.plant.crop]?.name||FC.BUILDINGS[b.type].name;return FC.BUILDINGS[b.type]?.name||'Постройка';}
 function onPick(hit){feedbackOrigin=null;clearActionFeedback();
   if(FarmNet.enabled&&(!FarmNet.ready||FarmNet.busy))return;
@@ -4399,7 +4399,92 @@ function onPick(hit){feedbackOrigin=null;clearActionFeedback();
   selectedId=null;selectedNature=null;world.selectedId=null;section='farm';showPanel();render(true);
 }
 const renderedMarkup=new WeakMap();
-function updateMarkup(el,html){if(renderedMarkup.get(el)!==html){el.innerHTML=html;renderedMarkup.set(el,html);}}
+// Keep live controls and list entries when only their displayed data changes.
+// Draft values belong to the user until that view is replaced.
+const uiDrafts=new WeakSet(),uiTimers=new WeakMap(),uiPendingSelects=new WeakMap();
+document.addEventListener('input',event=>{
+  if(event.target.matches('input,textarea'))uiDrafts.add(event.target);
+},true);
+function uiKey(node){
+  if(node.nodeType!==1)return '';
+  if(node.id)return 'id:'+node.id;
+  if(node.hasAttribute('data-ui-key'))return 'entry:'+node.dataset.uiKey;
+  if(node.hasAttribute('data-balance'))return 'balance:'+node.dataset.balance;
+  if(node.hasAttribute('data-change'))return 'change:'+JSON.stringify([node.dataset.change,node.dataset.id,node.dataset.key]);
+  if(node.hasAttribute('data-action')){
+    let p={};try{p=JSON.parse(node.dataset.p||'{}');}catch(e){}
+    // Values and quantities change; the action's target does not.
+    return 'action:'+node.dataset.action+':'+JSON.stringify(Object.entries(p).filter(([k])=>!['value','qty','keep'].includes(k)));
+  }
+  if(node.tagName==='OPTION')return 'option:'+node.value;
+  return '';
+}
+function uiShape(node){return node.nodeType===1?node.namespaceURI+':'+node.tagName+':'+(node.getAttribute('class')||'').split(' ')[0]:String(node.nodeType);}
+function patchUIElement(live,next){
+  if(live.isEqualNode(next))return;
+  if(live.nodeType!==1){if(live.nodeValue!==next.nodeValue)live.nodeValue=next.nodeValue;return;}
+  const input=live.tagName==='INPUT',text=live.tagName==='TEXTAREA',select=live.tagName==='SELECT';
+  const draft=(input||text)&&(uiDrafts.has(live)||live===document.activeElement);
+  for(const attr of [...live.attributes])if(!next.hasAttribute(attr.name)&&!(draft&&attr.name==='value')&&!(live.tagName==='DETAILS'&&attr.name==='open'))live.removeAttribute(attr.name);
+  for(const attr of next.attributes)if(!(draft&&attr.name==='value')&&live.getAttribute(attr.name)!==attr.value)live.setAttribute(attr.name,attr.value);
+  // Native select popups and IME composition must not be interrupted by ticks.
+  if(select&&live===document.activeElement){uiPendingSelects.set(live,next.cloneNode(true));return;}
+  if(!input&&!text)patchUIChildren(live,next);
+  if(input){
+    if(live.type!=='file'&&!draft&&live.value!==next.value)live.value=next.value;
+    if(live.checked!==next.checked)live.checked=next.checked;
+  }else if(text&&!draft&&live.value!==next.value)live.value=next.value;
+  else if(select&&live.value!==next.value)live.value=next.value;
+}
+function patchUIChildren(live,next){
+  const old=[...live.childNodes].filter(n=>!n.hasAttribute?.('data-action-feedback'));
+  const buckets=new Map();
+  for(const node of old){const key=uiKey(node),bucket=(key?'k:'+key:'s:'+uiShape(node));if(!buckets.has(bucket))buckets.set(bucket,[]);buckets.get(bucket).push(node);}
+  const retained=new Set(),plan=[];
+  for(const target of next.childNodes){
+    const key=uiKey(target),bucket=buckets.get(key?'k:'+key:'s:'+uiShape(target));
+    let node=bucket?.shift();
+    if(node&&(node.nodeType!==target.nodeType||node.nodeName!==target.nodeName||node.namespaceURI!==target.namespaceURI))node=null;
+    if(node)retained.add(node);
+    plan.push({node,target});
+  }
+  // Remove obsolete entries first. Otherwise insertBefore would unnecessarily
+  // move all subsequent cards and close a focused native select popup.
+  for(const node of old)if(!retained.has(node)&&node.parentNode===live)node.remove();
+  let cursor=live.firstChild;
+  for(const entry of plan){
+    let {node,target}=entry;
+    if(node)patchUIElement(node,target);else node=target.cloneNode(true);
+    while(cursor?.hasAttribute?.('data-action-feedback'))cursor=cursor.nextSibling;
+    if(node!==cursor)live.insertBefore(node,cursor);else cursor=cursor.nextSibling;
+  }
+}
+function updateUITimers(root){
+  if(!state)return;
+  let timers=uiTimers.get(root);
+  if(!timers){timers={text:[...root.querySelectorAll('[data-time]')],bars:[...root.querySelectorAll('[data-end][data-start]')]};uiTimers.set(root,timers);}
+  for(const el of timers.text){const text=secs(Number(el.dataset.time)-state.time);if(el.textContent!==text)el.textContent=text;}
+  for(const el of timers.bars){const end=Number(el.dataset.end),start=Number(el.dataset.start),width=Math.max(0,Math.min(100,(state.time-start)/Math.max(.01,end-start)*100))+'%';if(el.style.width!==width)el.style.width=width;}
+}
+function updateMarkup(el,html,replace=false){
+  if(!replace&&renderedMarkup.get(el)===html)return;
+  if(replace||!el.hasChildNodes())el.innerHTML=html;
+  else{
+    const focused=el.contains(document.activeElement)?document.activeElement:null;
+    const selection=focused&&typeof focused.selectionStart==='number'?[focused.selectionStart,focused.selectionEnd,focused.selectionDirection]:null;
+    const template=document.createElement('template');template.innerHTML=html;updateUITimers(template.content);patchUIChildren(el,template.content);
+    if(focused?.isConnected&&document.activeElement!==focused){focused.focus({preventScroll:true});if(selection)focused.setSelectionRange(...selection);}
+  }
+  renderedMarkup.set(el,html);uiTimers.delete(el);
+}
+// Finish a deferred select update after its native popup has closed.
+document.addEventListener('focusout',event=>{
+  if(event.target.matches('select'))setTimeout(()=>{
+    const control=event.target,next=uiPendingSelects.get(control);uiPendingSelects.delete(control);
+    if(next&&control.isConnected&&control!==document.activeElement){patchUIElement(control,next);if(control.value!==next.value)control.value=next.value;}
+    if(state&&!modalOpen)renderPanel();
+  },0);
+});
 const hudFmt=n=>fmt(n).replace(/\s/g,'');
 function updateHUD(){
   $('harvestAllBtn').hidden=!state.workers.length;
@@ -4408,12 +4493,12 @@ function updateHUD(){
   const used=FC.used(state),cap=FC.capacity(state),need=FC.levelNeed(state.level);
   const rs=[['coins','🪙','Монеты',state.coins],['wood','🪵','Дерево',state.items.wood||0],['stone','🪨','Камень',state.items.stone||0],['water','💧','Вода',state.items.water||0],['storage','📦','Склад',fmt(used)+' / '+fmt(cap)]];
   const markup=rs.map(([id,icon,label,n])=>'<button class="resource" data-action="inventory" title="'+label+': '+(id==='storage'?used.toLocaleString('ru-RU')+' / '+cap.toLocaleString('ru-RU'):Number(n).toLocaleString('ru-RU'))+' — открыть склад"><span class="resource-ico '+(id==='coins'?'coin-ico':'')+'">'+icon+'</span><span><span class="resource-value '+(id==='coins'?'coin-value':'')+'">'+(id==='storage'?'<span class="hud-used">'+hudFmt(used)+'</span><span class="hud-cap"> / '+hudFmt(cap)+'</span>':hudFmt(n))+'</span><span class="resource-label">'+label+'</span></span></button>').join('')+'<div class="level-chip"><div class="level-medal" title="Уровень игрока">'+fmt(state.level)+'</div><div class="grow"><div class="small" style="font-weight:600">Уровень '+fmt(state.level)+'</div><div class="xp-track"><div class="xp-fill" style="width:'+Math.min(100,state.xp/need*100)+'%"></div></div><div class="tiny muted" style="margin-top:3px">'+fmt(state.xp)+' / '+fmt(need)+' опыта</div></div></div>';
-  if(previousHud!==markup){$('hud').innerHTML=markup;previousHud=markup;}
+  if(previousHud!==markup){updateMarkup($('hud'),markup);previousHud=markup;}
   const events={rain:['🌦','Тёплый дождь','Полив от природы'],trader:['🛒','Приехал торговец','Выгодные продажи'],pests:['🐛','Садовые вредители','Новые посевы медленнее'],supply:['📦','Выгодные поставки','Бонус к заказам'],festival:['🎉','Ярмарка','Выгодные заказы']};
   const ev=state.event&&state.event.until>state.time?events[state.event.type]:null;const w=ev||['☀️','Ясный день','Растём без спешки'];
   updateMarkup($('weather'),'<span class="weather-ico">'+w[0]+'</span><div><b class="small" style="display:block">'+w[1]+'</b><span class="small muted">'+(ev?secs(state.event.until-state.time):w[2])+'</span></div>');
-  document.querySelectorAll('[data-time]').forEach(el=>{const text=secs(Number(el.dataset.time)-state.time);if(el.textContent!==text)el.textContent=text;});
-  document.querySelectorAll('[data-end][data-start]').forEach(el=>{const end=Number(el.dataset.end),start=Number(el.dataset.start);el.style.width=Math.max(0,Math.min(100,(state.time-start)/Math.max(.01,end-start)*100))+'%';});
+  if(!$('panel').classList.contains('mobile-hidden'))updateUITimers($('panelBody'));
+  if(modalOpen)updateUITimers($('modalRoot'));
 }
 let previousFarmName='';
 function updateFarmName(){const name=visitState?.farmName||state.farmName||FC.DEFAULT_FARM_NAME;if(name===previousFarmName)return;previousFarmName=name;$('farmName').textContent=name;$('farmName').title=name;document.title='Ферма: '+name;}
@@ -4429,8 +4514,8 @@ function render(force=false,refreshHud=true){
   updateFarmName();if(refreshHud)updateHUD();
   if(state.level>lastLevel){markLevelUp();lastLevel=state.level;}
   updateMarkup($('arrangeBtn'),ico('move',18)+(arranging?'Обустройство включено':'Обустройство'));$('arrangeBtn').classList.toggle('active',arranging);
-  if(force){$('nav').innerHTML=navs.map(([id,label])=>'<button class="nav-btn '+(section===id||section==='inventory'&&id==='farm'?'active':'')+'" data-action="nav" data-p="'+h(JSON.stringify({section:id}))+'" title="'+h(label)+'"'+(visitState&&id!=='farm'?' disabled':'')+'>'+ico(id)+'<span>'+(id==='map'?'Карта<br>земель':label)+'</span></button>').join('')+'<div class="rail-bottom"><button class="icon-btn" data-action="save" aria-label="Сохранить" title="Сохранить сейчас">'+ico('save',19)+'</button><span id="saveDot" class="save-dot '+(saveState==='error'?'bad':'')+'" title="'+h(saveMessage)+'"></span><span class="rail-version">ДОЛИНА · 1.0</span></div>';}
-  if(!force&&(performance.now()-lastPointer<350||['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName)))return;
+  if(force){updateMarkup($('nav'),navs.map(([id,label])=>'<button class="nav-btn '+(section===id||section==='inventory'&&id==='farm'?'active':'')+'" data-action="nav" data-p="'+h(JSON.stringify({section:id}))+'" title="'+h(label)+'"'+(visitState&&id!=='farm'?' disabled':'')+'>'+ico(id)+'<span>'+(id==='map'?'Карта<br>земель':label)+'</span></button>').join('')+'<div class="rail-bottom"><button class="icon-btn" data-action="save" aria-label="Сохранить" title="Сохранить сейчас">'+ico('save',19)+'</button><span id="saveDot" class="save-dot '+(saveState==='error'?'bad':'')+'" title="'+h(saveMessage)+'"></span><span class="rail-version">ДОЛИНА · 1.0</span></div>');}
+  if(!force&&(performance.now()-lastPointer<350||$('panel').classList.contains('mobile-hidden')))return;
   renderPanel();
 }
 function renderPanel(){
@@ -4449,10 +4534,11 @@ function renderPanel(){
   else if(section==='orders'){head=header('Доска заказов');body=renderOrders();}
   else if(section==='development'){head=header('Развитие');body=renderDevelopment();}
   else if(section==='inventory'){head=header('Склад и рынок');body=renderInventory();}
-  const sc=$('panelBody').scrollTop;
-  if(previousPanelHead!==head){$('panelHead').innerHTML=head;previousPanelHead=head;}
-  if(previousPanelBody!==body){$('panelBody').innerHTML=body;$('panelBody').scrollTop=sc;previousPanelBody=body;}
-  restoreActionFeedback();
+  const scope=section+':'+(section==='farm'?(selectedId||selectedNature?.id||'overview'):section==='production'?String(workerTab):section==='visit'?(visitProfile?.id+':'+visitSelectedId):'');
+  const root=$('panelBody'),sc=root.scrollTop,changed=scope!==previousPanelScope;
+  if(previousPanelHead!==head){updateMarkup($('panelHead'),head);previousPanelHead=head;}
+  if(changed||previousPanelBody!==body){updateMarkup(root,body,changed);root.scrollTop=sc;previousPanelBody=body;previousPanelScope=scope;}
+  updateUITimers(root);restoreActionFeedback();
 }
 function renderJournal(){
   const steps=['Посадите пшеницу на грядке','Полейте посаженную пшеницу','Соберите первый урожай','Выполните первый заказ'],t=state.tutorial||0;
@@ -4494,8 +4580,8 @@ function renderBuilding(b){
   const d=FC.BUILDINGS[b.type],st=FC.statsFor(state,b),decor=d.category==='decoration';
   const generation=b.level<2?'Обычная постройка':b.level<4?'Механизированная постройка':b.level<7?'Автоматизированная постройка':'Технологическое поколение '+(Math.floor((b.level-1)/3)+1);
   let out='<div class="object-hero"><div class="object-art">'+d.icon+'</div><div><div class="object-name">'+h(d.name)+'</div><div class="generation-label">'+(decor?'Оформление вашей долины':h(generation))+'</div><span class="badge topgap">'+b.w+' × '+b.h+' клетки</span></div></div>';
-  if(b.constructionUntil>state.time)out+='<div class="card gold"><b class="small">Строительство</b><div class="row spread topgap"><span class="tiny muted">Объект уже оплачен</span>'+remaining(b.constructionUntil)+'</div>'+progress(b.constructionUntil,b.constructionUntil-(b.constructionDuration??FC.BUILDINGS[b.type].constructionSeconds),'gold')+note('Постройка станет доступна после завершения работ.')+'</div>';
-  if(b.upgrade)out+='<div class="card gold topgap"><b class="small">Модернизация до уровня '+b.upgrade.toLevel+'</b><div class="row spread topgap"><span class="tiny muted">Стоимость уже списана</span>'+remaining(b.upgrade.end)+'</div>'+progress(b.upgrade.end,b.upgrade.end-(b.upgrade.duration??Math.min(FC.TUNING.upgradeSecondsMax,FC.TUNING.upgradeSecondsBase+b.upgrade.toLevel*FC.TUNING.upgradeSecondsLevel)),'gold')+note('Оплаченные партии работают на прежних условиях. Содержимое и помощники сохраняются.')+'</div>';
+  if(b.constructionUntil>state.time)out+='<div data-ui-key="construction" class="card gold"><b class="small">Строительство</b><div class="row spread topgap"><span class="tiny muted">Объект уже оплачен</span>'+remaining(b.constructionUntil)+'</div>'+progress(b.constructionUntil,b.constructionUntil-(b.constructionDuration??FC.BUILDINGS[b.type].constructionSeconds),'gold')+note('Постройка станет доступна после завершения работ.')+'</div>';
+  if(b.upgrade)out+='<div data-ui-key="upgrade" class="card gold topgap"><b class="small">Модернизация до уровня '+b.upgrade.toLevel+'</b><div class="row spread topgap"><span class="tiny muted">Стоимость уже списана</span>'+remaining(b.upgrade.end)+'</div>'+progress(b.upgrade.end,b.upgrade.end-(b.upgrade.duration??Math.min(FC.TUNING.upgradeSecondsMax,FC.TUNING.upgradeSecondsBase+b.upgrade.toLevel*FC.TUNING.upgradeSecondsLevel)),'gold')+note('Оплаченные партии работают на прежних условиях. Содержимое и помощники сохраняются.')+'</div>';
   out+=note(d.desc);
   if(b.type==='plot')out+=renderPlot(b);
   else if(b.type==='warehouse')out+='<div class="mini-grid topgap">'+stat(fmt(st.capacity),'вместимость этой постройки')+stat(fmt(FC.warehouseFreeSpace(state,b)),'свободно в этой постройке')+'</div>'+btn('Открыть склад и рынок','inventory',{},'full secondary topgap');
@@ -4526,8 +4612,8 @@ function marketSetLimits(id,selection,keep){
 function renderMarket(b){const st=FC.marketStats(b),limits=b.settings.limits||{},draft=marketEditors.get(b.id)||{item:Object.keys(limits)[0]||'group:crops',keep:limits[Object.keys(limits)[0]]??20},groups=marketGroups(),cargo=state.workers.filter(w=>w.marketId===b.id).reduce((n,w)=>n+Object.values(w.cargo||{}).reduce((a,n)=>a+n,0),0);
  let out='<div class="mini-grid topgap">'+stat(Math.round(st.price*100)+'%','рыночной цены')+stat(secs(st.interval),'между продажами')+stat(fmt(st.batch),'товаров за продажу')+stat(fmt(Object.values(b.output).reduce((a,n)=>a+n,0))+' / '+fmt(st.capacity),'на прилавке')+'</div>'+note('В пути: '+cargo+'. Помощник забирает излишки со склада и доставляет на рынок. Деньги начисляются после продажи.')+goods(b.output)+(Object.keys(b.output).length?'<p class="note market-countdown">Следующая продажа: '+remaining(b.marketNextAt||state.time+st.interval)+'</p>':'')+'<div class="toggle-line topgap"><div><b>Доставка излишков</b></div><button class="toggle '+(b.settings.auto?'on':'')+'" data-action="setting" data-p="'+h(JSON.stringify({id:b.id,key:'auto',value:!b.settings.auto}))+'" aria-label="Доставка на рынок" aria-pressed="'+!!b.settings.auto+'"></button></div>';
  out+='<div class="farm-name-editor topgap"><label for="marketItem">Группа или товар</label><select id="marketItem"><optgroup label="Группы">'+groups.map(g=>'<option value="group:'+g.id+'"'+(draft.item==='group:'+g.id?' selected':'')+'>'+h(g.name)+'</option>').join('')+'</optgroup><optgroup label="Отдельные товары">'+Object.values(FC.ITEMS).filter(it=>it.price>0).map(it=>'<option value="'+it.id+'"'+(draft.item===it.id?' selected':'')+'>'+h(it.name)+'</option>').join('')+'</optgroup></select><label for="marketKeep" class="topgap">Оставлять на складе · каждого товара</label><input type="number" id="marketKeep" min="0" step="1" value="'+h(draft.keep)+'" inputmode="numeric">'+btn('Применить лимит','marketSaveLimit',{id:b.id},'secondary full topgap')+note('Для группы значение применяется к каждому товару отдельно. Например, 300 — по 300 каждой культуры, включая отборные сорта.')+'</div>';
- const shown=new Set();for(const group of groups.filter(g=>g.id!=='all')){const n=limits[group.items[0]];if(group.items.length&&n!==undefined&&group.items.every(k=>limits[k]===n)){out+='<div class="market-limit-row topgap"><span>'+h(group.name)+': по '+fmt(n)+' каждого</span>'+btn('Убрать','marketRemoveGroup',{id:b.id,group:group.id},'ghost')+'</div>';group.items.forEach(k=>shown.add(k));}}
- for(const[item,n]of Object.entries(limits))if(!shown.has(item))out+='<div class="market-limit-row topgap"><span>'+h(FC.ITEMS[item].name)+': оставлять '+fmt(n)+'</span>'+btn('Убрать','marketRemoveLimit',{id:b.id,item},'ghost')+'</div>';
+ const shown=new Set();for(const group of groups.filter(g=>g.id!=='all')){const n=limits[group.items[0]];if(group.items.length&&n!==undefined&&group.items.every(k=>limits[k]===n)){out+='<div data-ui-key="limit-group:'+h(group.id)+'" class="market-limit-row topgap"><span>'+h(group.name)+': по '+fmt(n)+' каждого</span>'+btn('Убрать','marketRemoveGroup',{id:b.id,group:group.id},'ghost')+'</div>';group.items.forEach(k=>shown.add(k));}}
+ for(const[item,n]of Object.entries(limits))if(!shown.has(item))out+='<div data-ui-key="limit-item:'+h(item)+'" class="market-limit-row topgap"><span>'+h(FC.ITEMS[item].name)+': оставлять '+fmt(n)+'</span>'+btn('Убрать','marketRemoveLimit',{id:b.id,item},'ghost')+'</div>';
  return out+note('Товары без лимита автоматически не продаются. Нужен помощник с задачей «Любая работа», «Перенос продукции» или «Доставка на рынок».');}
 function renderKennel(b){const until=b.dogFedUntil||0,active=until>Date.now(),cx=Math.floor(b.x/FC.CHUNK),cy=Math.floor(b.y/FC.CHUNK);return '<div class="card '+(active?'soft':'gold')+' topgap"><b>'+h(active?'Собака на страже':'Собака голодна')+'</b>'+note('Участок '+cx+' · '+cy+'. '+(active?'Охрана ещё '+secs((until-Date.now())/1000):'Охрана выключена.'))+note('Кормление: '+FC.TUNING.dogFeedCost+' корма на '+FC.TUNING.dogFeedHours+' реальных часов. Повторное кормление обновляет срок, не накапливает сутки.')+btn('Накормить собаку','feedDog',{id:b.id},'secondary full topgap',(state.items.feed||0)<FC.TUNING.dogFeedCost||b.constructionUntil>state.time)+note('Корм на складе: '+fmt(state.items.feed||0))+note('Защищён урожай этого участка. Если здесь стоит дом фермера, собака защищает и золото. На других участках охрана не действует.')+'</div>';}
 
@@ -4551,14 +4637,14 @@ function renderWorkshop(b){
   let out='<div class="mini-grid topgap">'+stat('×'+st.batch,'размер партии')+stat(st.speed.toFixed(2)+'×','скорость, предел 2,5×')+'</div>';
   if(outCount>0)out+='<div class="output-box topgap"><div class="row spread"><b class="small">Продукция готова</b><span class="tiny">'+fmt(outCount)+' / '+fmt(st.storage)+'</span></div>'+goods(b.output)+btn('Перенести на склад','collect',{id:b.id},'gold full')+'</div>';
   out+=sectionTitle('Оплаченная очередь',b.queue.length+' / '+st.queue);
-  if(b.queue.length)out+='<div class="card white">'+b.queue.slice(0,8).map((q,i)=>'<div class="queue-row"><div class="row spread"><b class="small">'+(i+1)+'. '+h(q.name||FC.RECIPES[q.recipe]?.name||'Партия')+'</b><span class="tiny">'+remaining(q.end)+'</span></div>'+progress(q.end,q.start)+goods(q.outputs)+(q.end<=state.time?note('Ожидает места во внутреннем хранилище.'):note('Сырьё списано. Выпуск '+secs(q.duration)+' на сохранённых условиях.'))+'</div>').join('')+(b.queue.length>8?note('И ещё '+(b.queue.length-8)+' партий в очереди.'):'')+'</div>';
+  if(b.queue.length)out+='<div class="card white">'+b.queue.slice(0,8).map((q,i)=>'<div data-ui-key="queue:'+h(q.start+':'+q.end+':'+q.recipe)+'" class="queue-row"><div class="row spread"><b class="small">'+(i+1)+'. '+h(q.name||FC.RECIPES[q.recipe]?.name||'Партия')+'</b><span class="tiny">'+remaining(q.end)+'</span></div>'+progress(q.end,q.start)+goods(q.outputs)+(q.end<=state.time?note('Ожидает места во внутреннем хранилище.'):note('Сырьё списано. Выпуск '+secs(q.duration)+' на сохранённых условиях.'))+'</div>').join('')+(b.queue.length>8?note('И ещё '+(b.queue.length-8)+' партий в очереди.'):'')+'</div>';
   else out+=note('Очередь пуста. Выберите рецепт ниже.');
   out+=sectionTitle('Рецепты','Чистая добавленная стоимость');
   for(const r of FC.recipesFor(state,b)){
     const batch=FC.batchFor(state,b,r.id);if(!batch)continue;
     let missing=Object.entries(batch.inputs).some(([k,v])=>(state.items[k]||0)<v)||state.coins<(batch.coins||0);
     const blocked=!r.available||b.queue.length>=st.queue||missing||b.constructionUntil>state.time;
-    out+='<div class="recipe"><div class="row spread"><span class="recipe-name">'+h(r.name)+'</span><span class="badge '+(r.available?'':'lock')+'">'+(r.available?secs(batch.duration):'🔒 Ур. '+r.unlock)+'</span></div>'+goods(batch.inputs,true)+(batch.coins?'<div class="cost-line">'+cost({coins:batch.coins})+'</div>':'')+'<div class="tiny muted">↓ После переработки</div>'+goods(batch.outputs)+'<div class="row spread small"><span class="muted">Прибыль партии</span><b style="color:#638347">+'+fmt(batch.profit)+' 🪙</b></div><div class="row spread tiny topgap"><span class="muted">За минуту работы</span><b>+'+fmt(batch.profitPerMinute)+' 🪙</b></div>'+btn('Оплатить партию','enqueue',{id:b.id,recipe:r.id},'full secondary topgap',blocked,r.reason|| (missing?'Не хватает сырья или монет':b.queue.length>=st.queue?'Очередь заполнена':''))+(blocked?'<div class="topgap">'+note(r.reason||(missing?'Добавьте сырьё в общий склад.':b.queue.length>=st.queue?'Очередь заполнена.': 'Идёт строительство.'))+'</div>':'')+'</div>';
+    out+='<div data-ui-key="recipe:'+h(r.id)+'" class="recipe"><div class="row spread"><span class="recipe-name">'+h(r.name)+'</span><span class="badge '+(r.available?'':'lock')+'">'+(r.available?secs(batch.duration):'🔒 Ур. '+r.unlock)+'</span></div>'+goods(batch.inputs,true)+(batch.coins?'<div class="cost-line">'+cost({coins:batch.coins})+'</div>':'')+'<div class="tiny muted">↓ После переработки</div>'+goods(batch.outputs)+'<div class="row spread small"><span class="muted">Прибыль партии</span><b style="color:#638347">+'+fmt(batch.profit)+' 🪙</b></div><div class="row spread tiny topgap"><span class="muted">За минуту работы</span><b>+'+fmt(batch.profitPerMinute)+' 🪙</b></div>'+btn('Оплатить партию','enqueue',{id:b.id,recipe:r.id},'full secondary topgap',blocked,r.reason|| (missing?'Не хватает сырья или монет':b.queue.length>=st.queue?'Очередь заполнена':''))+(blocked?'<div class="topgap">'+note(r.reason||(missing?'Добавьте сырьё в общий склад.':b.queue.length>=st.queue?'Очередь заполнена.': 'Идёт строительство.'))+'</div>':'')+'</div>';
   }
   out+='<div class="line"></div>'+note('Прибыль = продажная стоимость выхода − продажная стоимость ингредиентов − прямые расходы. Окупаемость здания и снабжение оценивайте отдельно.');
   out+=sectionTitle('Автоматизация')+'<label class="form-label" for="autoRecipe">Повторяемый рецепт</label><select id="autoRecipe" data-change="setting" data-id="'+h(b.id)+'" data-key="recipe">'+FC.recipesFor(state,b).filter(r=>r.available).map(r=>'<option value="'+h(r.id)+'"'+(b.settings.recipe===r.id?' selected':'')+'>'+h(r.name)+'</option>').join('')+'</select><div class="toggle-line"><div><b class="small">Повторять производство</b><p class="tiny muted">Покупает новые партии при наличии сырья</p></div><button class="toggle '+(b.settings.auto?'on':'')+'" data-action="toggleAuto" data-p="'+h(JSON.stringify({id:b.id}))+'" aria-label="Повторять производство" aria-pressed="'+!!b.settings.auto+'"></button></div>'+note('Для автоматической работы нужен помощник. Диспетчерская ускоряет его. Готовый товар сохраняется при нехватке места.');
@@ -4586,7 +4672,7 @@ function renderLands(){
   out+=sectionTitle('Принадлежащие земли')+'<select id="landSelect" data-change="landFocus">'+owned.map(l=>{const d=FC.landInfo(state,l.cx,l.cy);return '<option value="'+d.key+'"'+(d.key===selected.key?' selected':'')+'>'+d.cx+' / '+d.cy+' — '+h(d.name)+'</option>';}).join('')+'</select>';
   out+=sectionTitle(selected.owned?'Освоение и соседние участки':'Выбранная земля и соседи');
   const biomeIcons={meadow:'🌾',valley:'🥕',forest:'🌲',rocky:'🪨',shore:'🌊',flowers:'🌸',industrial:'🏭'};
-  for(const l of info){const adjacent=front.some(f=>f.key===l.key);out+='<div class="land-card"><div class="card-title"><span class="land-swatch" style="background:'+h(l.color)+'33">'+(biomeIcons[l.biome]||'🌳')+'</span><div><h3 style="font-size:13px">'+h(l.name)+'</h3><div class="tiny muted">Участок '+l.cx+' / '+l.cy+' · '+l.area+' клеток</div></div></div>'+note(l.desc)+'<div class="badge topgap">'+h(l.bonus)+'</div><div class="cost-line tiny muted">Ресурсы: 🪵 '+fmt(l.resources?.wood||0)+' · 🪨 '+fmt(l.resources?.stone||0)+'</div>'+(l.owned?'<span class="badge">Ваша земля</span>':cost(l.cost))+'<div class="row topgap">'+btn('Посмотреть','landFocus',{cx:l.cx,cy:l.cy},'ghost grow')+(l.owned?btn('Собрать дары','forage',{cx:l.cx,cy:l.cy},'secondary grow'):btn('Купить','landPreview',{cx:l.cx,cy:l.cy},'grow',!adjacent,!adjacent?'Сначала купите соседнюю землю':''))+'</div>'+(!l.owned&&!adjacent?note('Нужна общая граница с вашей землёй.'): '')+'</div>';}
+  for(const l of info){const adjacent=front.some(f=>f.key===l.key);out+='<div data-ui-key="land:'+h(l.key)+'" class="land-card"><div class="card-title"><span class="land-swatch" style="background:'+h(l.color)+'33">'+(biomeIcons[l.biome]||'🌳')+'</span><div><h3 style="font-size:13px">'+h(l.name)+'</h3><div class="tiny muted">Участок '+l.cx+' / '+l.cy+' · '+l.area+' клеток</div></div></div>'+note(l.desc)+'<div class="badge topgap">'+h(l.bonus)+'</div><div class="cost-line tiny muted">Ресурсы: 🪵 '+fmt(l.resources?.wood||0)+' · 🪨 '+fmt(l.resources?.stone||0)+'</div>'+(l.owned?'<span class="badge">Ваша земля</span>':cost(l.cost))+'<div class="row topgap">'+btn('Посмотреть','landFocus',{cx:l.cx,cy:l.cy},'ghost grow')+(l.owned?btn('Собрать дары','forage',{cx:l.cx,cy:l.cy},'secondary grow'):btn('Купить','landPreview',{cx:l.cx,cy:l.cy},'grow',!adjacent,!adjacent?'Сначала купите соседнюю землю':''))+'</div>'+(!l.owned&&!adjacent?note('Нужна общая граница с вашей землёй.'): '')+'</div>';}
   if(front.length>16)out+=note('На карте доступно ещё '+(front.length-16)+' соседних участков. Отдалите карту и нажмите на нужный.');
   return out;
 }
@@ -4596,7 +4682,7 @@ function renderProduction(){
   const list=state.buildings.filter(b=>FC.recipesFor(state,b).length);
   if(!list.length)return out+'<div class="empty"><span class="emoji">🌬️</span>На 5-м уровне откроются мельница и курятник. Сейчас выращивайте зерно и выполняйте заказы.</div>'+btn('Посмотреть будущие цеха','goProductionCatalog',{},'secondary full');
   out+='<div class="mini-grid">'+stat(fmt(list.length),'производств')+stat(fmt(list.reduce((n,b)=>n+b.queue.length,0)),'оплаченных партий')+'</div>'+sectionTitle('Ваши цеха','Нажмите, чтобы управлять');
-  out+=list.slice(0,100).map(b=>{const d=FC.BUILDINGS[b.type],q=b.queue[0],ready=Object.values(b.output).reduce((a,n)=>a+n,0);return '<div class="card white topgap"><div class="card-title"><span class="round-ico">'+d.icon+'</span><div class="grow"><b class="small">'+h(d.name)+'</b><div class="tiny muted">Ур. '+b.level+' · '+b.queue.length+' партий в очереди</div></div><span class="badge '+(ready?'gold':'')+'">'+(ready?'Готово: '+fmt(ready):q?remaining(q.end):'Ожидает')+'</span></div>'+(q?progress(q.end,q.start):'')+'<div class="row">'+btn('Открыть','focusBuilding',{id:b.id},'secondary grow')+(ready?btn('Забрать','collect',{id:b.id},'gold grow'):'')+'</div></div>';}).join('');
+  out+=list.slice(0,100).map(b=>{const d=FC.BUILDINGS[b.type],q=b.queue[0],ready=Object.values(b.output).reduce((a,n)=>a+n,0);return '<div data-ui-key="production:'+h(b.id)+'" class="card white topgap"><div class="card-title"><span class="round-ico">'+d.icon+'</span><div class="grow"><b class="small">'+h(d.name)+'</b><div class="tiny muted">Ур. '+b.level+' · '+b.queue.length+' партий в очереди</div></div><span class="badge '+(ready?'gold':'')+'">'+(ready?'Готово: '+fmt(ready):q?remaining(q.end):'Ожидает')+'</span></div>'+(q?progress(q.end,q.start):'')+'<div class="row">'+btn('Открыть','focusBuilding',{id:b.id},'secondary grow')+(ready?btn('Забрать','collect',{id:b.id},'gold grow'):'')+'</div></div>';}).join('');
   if(list.length>100)out+=note('Показаны первые 100 цехов. Для остальных перейдите на нужный участок и выберите здание на карте.');
   return out;
 }
@@ -4606,7 +4692,7 @@ function renderOrders(){
   for(const o of active){
     const delivered=Object.values(o.delivered).reduce((a,n)=>a+n,0),total=Object.values(o.requirements).reduce((a,n)=>a+n,0);
     const canDeliver=Object.entries(o.requirements).some(([k,n])=>n>(o.delivered[k]||0)&&(state.items[k]||0)>0);
-    out+='<div class="order-card '+(o.kind==='bulk'?'large':'')+'"><div class="row spread"><span class="badge '+(o.kind==='tutorial'?'gold':'')+'">'+(o.kind==='bulk'?'🚚 Большая поставка':o.kind==='tutorial'?'🌾 Первый шаг':o.kind==='trader'?'🛒 Торговец':'✉️ Соседи')+'</span><span class="tiny muted">Без срока</span></div><h3 style="margin-top:11px;font-family:Georgia,serif;font-size:19px">'+h(o.name)+'</h3>';
+    out+='<div data-ui-key="order:'+h(o.id)+'" class="order-card '+(o.kind==='bulk'?'large':'')+'"><div class="row spread"><span class="badge '+(o.kind==='tutorial'?'gold':'')+'">'+(o.kind==='bulk'?'🚚 Большая поставка':o.kind==='tutorial'?'🌾 Первый шаг':o.kind==='trader'?'🛒 Торговец':'✉️ Соседи')+'</span><span class="tiny muted">Без срока</span></div><h3 style="margin-top:11px;font-family:Georgia,serif;font-size:19px">'+h(o.name)+'</h3>';
     for(const [id,n]of Object.entries(o.requirements)){const got=o.delivered[id]||0;out+='<div class="order-row"><span>'+(FC.ITEMS[id]?.icon||'📦')+' '+h(FC.ITEMS[id]?.name||id)+'</span><span><b style="color:'+(got>=n?'#74974f':'inherit')+'">'+fmt(got)+' / '+fmt(n)+'</b><small class="muted"> · есть '+fmt(state.items[id]||0)+'</small></span></div>';}
     out+='<div class="progress-track"><div class="progress-bar gold" style="width:'+(total?delivered/total*100:0)+'%"></div></div><div class="order-reward row spread"><span>🪙 '+fmt(o.reward)+'</span><span class="tiny">+'+fmt(o.xp)+' опыта</span></div>'+btn(delivered?'Передать следующую часть':'Передать товары','order',{id:o.id},'full topgap',!canDeliver,'Нет подходящих товаров на складе')+'<div class="row spread topgap">'+note(o.kind==='bulk'?'Большой заказ можно сдавать частями.':'Награда выдаётся за весь заказ один раз.')+(o.kind!=='tutorial'?btn('Сменить','skipOrder',{id:o.id},'ghost sm',delivered>0,'В частично выполненном заказе уже есть товары'):'')+'</div></div>';
   }
@@ -4625,7 +4711,7 @@ function renderDevelopment(){
   const milestones=[[5,'Мельница и курятник','Мука, корм и яйца'],[8,'Помощники и их жильё','Полив, урожай, кормление, перенос'],[10,'Яблоневый сад','Фрукты и будущие заготовки'],[15,'Пекарня','Хлеб и рецепты выпечки'],[18,'Пасека','Мёд и цветочные земли'],[20,'Варочный цех','Заготовки из фруктов и ягод'],[25,'Коровник и молочная мастерская','Молоко и сливки для новых цепочек'],[32,'Овчарня','Шерсть для ткачества'],[35,'Ткацкая мастерская','Ткань и составные поставки'],[40,'Сыроварня и развитая теплица','Дорогие продукты и ценные культуры'],[45,'Диспетчерская','Ускорение передвижения и работы помощников'],[50,'Специализации','Объём, скорость и экономия сырья'],[55,'Рыбное хозяйство','Аквакультура на берегу'],[60,'Лесопилка','Восстановление леса и распил'],[70,'Каменоломня','Возобновляемый камень'],[100,'Автоматизированный комплекс','Составные товары и крупные поставки']];
   const start=Math.max(125,125+25*Math.floor(Math.max(0,state.level-150)/25));
   for(let n=0;n<4;n++){const lv=start+25*n;milestones.push([lv,'Технологическое поколение '+FC.technologyLevel(lv),'Новый составной рецепт и дальнейшие улучшения']);}
-  out+='<div class="level-road">'+milestones.map(([level,name,desc])=>'<div class="milestone '+(state.level>=level?'unlocked':'')+'"><span class="badge '+(state.level>=level?'':'lock')+'">'+(state.level>=level?'✓ ':'')+'Уровень '+fmt(level)+'</span><b>'+h(name)+'</b><p>'+h(desc)+'</p></div>').join('')+'</div>'+note('Каждые следующие 25 уровней после 100 открывается очередное технологическое поколение. Конечной строки развития нет. Ускорение имеет предел; дальше растут партии, вместимость и эффективность.');
+  out+='<div class="level-road">'+milestones.map(([level,name,desc])=>'<div data-ui-key="milestone:'+h(level)+'" class="milestone '+(state.level>=level?'unlocked':'')+'"><span class="badge '+(state.level>=level?'':'lock')+'">'+(state.level>=level?'✓ ':'')+'Уровень '+fmt(level)+'</span><b>'+h(name)+'</b><p>'+h(desc)+'</p></div>').join('')+'</div>'+note('Каждые следующие 25 уровней после 100 открывается очередное технологическое поколение. Конечной строки развития нет. Ускорение имеет предел; дальше растут партии, вместимость и эффективность.');
   return out;
 }
 function renderWorkers(){
@@ -4637,7 +4723,7 @@ function renderWorkers(){
   const tasks=[['weed','Только прополка'],['all','Любая полезная работа'],['water','Полив и запас воды'],['harvest','Сбор и повторная посадка'],['feed','Кормление и запуск цехов'],['transport','Перенос готовой продукции'],['market','Доставка на рынок']];
   out+=sectionTitle('Команда долины');
   if(!state.workers.length)return out+'<div class="empty"><span class="emoji">🧑‍🌾</span>Первый помощник начнёт поливать посадки, собирать урожай и переносить товары. Его работа будет видна на карте.</div>';
-  out+=state.workers.map(w=>'<div class="worker-card"><div class="card-title"><span class="round-ico">🧑‍🌾</span><div><h3>'+h(w.name)+'</h3><p class="tiny muted">'+h(w.status||'Ищет задачу')+'</p></div></div><label class="form-label">Основная задача</label><select data-change="worker" data-id="'+h(w.id)+'" data-key="task">'+tasks.map(([id,label])=>'<option value="'+id+'"'+(w.task===id?' selected':'')+'>'+label+'</option>').join('')+'</select><label class="form-label">Рабочая зона</label><select data-change="worker" data-id="'+h(w.id)+'" data-key="buildingId"><option value="">Всё хозяйство</option>'+workBuildings.map(b=>'<option value="'+h(b.id)+'"'+(w.buildingId===b.id?' selected':'')+'>'+h(FC.BUILDINGS[b.type].name)+' · '+b.x+'/'+b.y+'</option>').join('')+'</select><label class="form-label">Приоритет работника</label><select data-change="worker" data-id="'+h(w.id)+'" data-key="priority">'+[[1,'Обычный'],[2,'Высокий'],[3,'Первоочередной']].map(([n,t])=>'<option value="'+n+'"'+(w.priority===n?' selected':'')+'>'+t+'</option>').join('')+'</select><div class="toggle-line"><div><b class="small">Прополка</b><p class="tiny muted">Для режима «Любая работа»</p></div><button class="toggle '+(w.weeding!==false?'on':'')+'" data-action="workerWeeding" data-p="'+h(JSON.stringify({id:w.id}))+'" aria-label="Прополка помощником" aria-pressed="'+(w.weeding!==false)+'"></button></div><p class="note">1 монета / игровую минуту'+(w.unpaid?' · работа приостановлена: нет монет':'')+'</p>'+btn('Отпустить помощника','fireWorker',{id:w.id},'ghost full topgap')+'<p class="note topgap">Завершено задач: '+fmt(w.completed||0)+'</p></div>').join('');
+  out+=state.workers.map(w=>'<div data-ui-key="worker:'+h(w.id)+'" class="worker-card"><div class="card-title"><span class="round-ico">🧑‍🌾</span><div><h3>'+h(w.name)+'</h3><p class="tiny muted">'+h(w.status||'Ищет задачу')+'</p></div></div><label class="form-label">Основная задача</label><select data-change="worker" data-id="'+h(w.id)+'" data-key="task">'+tasks.map(([id,label])=>'<option value="'+id+'"'+(w.task===id?' selected':'')+'>'+label+'</option>').join('')+'</select><label class="form-label">Рабочая зона</label><select data-change="worker" data-id="'+h(w.id)+'" data-key="buildingId"><option value="">Всё хозяйство</option>'+workBuildings.map(b=>'<option value="'+h(b.id)+'"'+(w.buildingId===b.id?' selected':'')+'>'+h(FC.BUILDINGS[b.type].name)+' · '+b.x+'/'+b.y+'</option>').join('')+'</select><label class="form-label">Приоритет работника</label><select data-change="worker" data-id="'+h(w.id)+'" data-key="priority">'+[[1,'Обычный'],[2,'Высокий'],[3,'Первоочередной']].map(([n,t])=>'<option value="'+n+'"'+(w.priority===n?' selected':'')+'>'+t+'</option>').join('')+'</select><div class="toggle-line"><div><b class="small">Прополка</b><p class="tiny muted">Для режима «Любая работа»</p></div><button class="toggle '+(w.weeding!==false?'on':'')+'" data-action="workerWeeding" data-p="'+h(JSON.stringify({id:w.id}))+'" aria-label="Прополка помощником" aria-pressed="'+(w.weeding!==false)+'"></button></div><p class="note">1 монета / игровую минуту'+(w.unpaid?' · работа приостановлена: нет монет':'')+'</p>'+btn('Отпустить помощника','fireWorker',{id:w.id},'ghost full topgap')+'<p class="note topgap">Завершено задач: '+fmt(w.completed||0)+'</p></div>').join('');
   return out+note('Задачи резервируются. Дорожки ускоряют ходьбу: дерево +20%, камень +35%, кирпич +50%. При наличии пути помощник выбирает более быстрый маршрут. С диспетчерской суммарное ускорение передвижения ограничено ×3.');
 }
 function renderInventory(){
@@ -4645,7 +4731,7 @@ function renderInventory(){
   let out='<div class="card soft"><div class="row spread"><b class="small">Общий склад</b><span>'+fmt(used)+' / '+fmt(cap)+'</span></div><div class="progress-track"><div class="progress-bar '+(used>=cap?'gold':'')+'" style="width:'+Math.min(100,used/cap*100)+'%"></div></div>'+note('Товары на грядках и во внутренних хранилищах цехов занимают место только после переноса на общий склад.')+'</div>';
   out+=sectionTitle('Запасы и продажа');
   const entries=Object.entries(state.items).filter(([k,n])=>n>0);
-  for(const [id,n]of entries){const d=FC.ITEMS[id],price=Math.floor(d.price*(state.event.type==='trader'?FC.TUNING.traderSale:1));out+='<div class="inventory-line"><div class="row"><span class="inventory-icon">'+d.icon+'</span><div class="grow"><b class="small">'+h(d.name)+'</b><div class="tiny muted">'+(price?'Продажа: '+fmt(price)+' 🪙 / шт.':'Бесплатный возобновляемый ресурс')+'</div></div><b>'+fmt(n)+'</b></div><div class="row topgap"><input class="number" id="sellQty-'+id+'" type="number" min="1" max="'+n+'" value="'+Math.min(10,n)+'" aria-label="Количество '+h(d.name)+'">'+btn(price?'Продать':'Вылить','sellQty',{item:id},'secondary grow')+btn('Всё','sell',{item:id,qty:n},'ghost')+'</div>'+(d.grade==='select'?'<div class="topgap">'+btn('Использовать как обычный урожай','normalizeQty',{item:id},'ghost full')+'</div>':'')+'</div>';}
+  for(const [id,n]of entries){const d=FC.ITEMS[id],price=Math.floor(d.price*(state.event.type==='trader'?FC.TUNING.traderSale:1));out+='<div data-ui-key="inventory:'+h(id)+'" class="inventory-line"><div class="row"><span class="inventory-icon">'+d.icon+'</span><div class="grow"><b class="small">'+h(d.name)+'</b><div class="tiny muted">'+(price?'Продажа: '+fmt(price)+' 🪙 / шт.':'Бесплатный возобновляемый ресурс')+'</div></div><b>'+fmt(n)+'</b></div><div class="row topgap"><input class="number" id="sellQty-'+id+'" type="number" min="1" max="'+n+'" value="'+Math.min(10,n)+'" aria-label="Количество '+h(d.name)+'">'+btn(price?'Продать':'Вылить','sellQty',{item:id},'secondary grow')+btn('Всё','sell',{item:id,qty:n},'ghost')+'</div>'+(d.grade==='select'?'<div class="topgap">'+btn('Использовать как обычный урожай','normalizeQty',{item:id},'ghost full')+'</div>':'')+'</div>';}
   if(!entries.length)out+='<div class="empty">Склад пуст. Соберите дикоросы, посадите базовую пшеницу или наберите воды.</div>';
   out+=sectionTitle('Материалы у торговца');
   for(const id of ['wood','stone','fertilizer']){const d=FC.ITEMS[id];out+='<div class="card white topgap"><div class="row spread"><b class="small">'+d.icon+' '+h(d.name)+'</b><span class="tiny muted">'+d.buyPrice+' 🪙 / шт.</span></div><div class="row topgap"><input class="number" id="buyQty-'+id+'" type="number" min="1" max="999999" value="10" aria-label="Купить '+h(d.name)+'">'+btn('Купить','buyQty',{item:id},'secondary grow')+'</div></div>';}
@@ -4712,7 +4798,7 @@ function showBalanceEditor(){
  const groups=new Map();for(const f of FarmBalance.spec.fields){if(!groups.has(f.group))groups.set(f.group,[]);groups.get(f.group).push(f);}
  const cats={crops:'Культуры',items:'Цены товаров',buildings:'Постройки',recipes:'Производство',varieties:'Сорта',economy:'Общие правила',tuning:'Формулы и бонусы',raids:'Соседи и набеги'};
  let content='<div class="card soft">'+note('Общий баланс v'+FarmBalance.current.revision+' · '+FarmBalance.spec.fields.length+' параметров. Изменения в редакторе — черновик до публикации. Уже оплаченные очереди, посевы, стройки, заказы и выданная защита сохраняют свои условия.')+'</div><div class="farm-name-editor topgap"><input id="balanceSearch" type="search" placeholder="Найти параметр или объект" aria-label="Поиск параметров"><select id="balanceCategory" class="topgap" aria-label="Раздел баланса"><option value="">Все разделы</option>'+Object.entries(cats).map(([k,n])=>'<option value="'+k+'">'+n+'</option>').join('')+'</select></div><p class="note" id="balanceDirty">Изменено: '+FarmBalance.changed+'</p>';
- for(const[group,fields]of groups){content+='<details class="balance-group card topgap"><summary><b>'+h(group)+'</b></summary><div class="topgap">';for(const f of fields){const scale=f.unit==='hours'?3600000:1,value=FarmBalance.draft[f.path]/scale;content+='<label class="balance-row" data-balance-row data-category="'+f.path.split('.')[0]+'" data-search="'+h((group+' '+f.label+' '+f.path).toLocaleLowerCase('ru-RU'))+'"><span>'+h(f.label)+'</span><input type="number" inputmode="decimal" data-balance="'+h(f.path)+'" aria-label="'+h(f.group+' / '+f.label)+'" min="'+f.min/scale+'" max="'+f.max/scale+'" step="'+(f.integer&&scale===1?'1':'any')+'" value="'+value+'"></label>';}content+='</div></details>';}
+ for(const[group,fields]of groups){content+='<details data-ui-key="balance-group:'+h(group)+'" class="balance-group card topgap"><summary><b>'+h(group)+'</b></summary><div class="topgap">';for(const f of fields){const scale=f.unit==='hours'?3600000:1,value=FarmBalance.draft[f.path]/scale;content+='<label data-ui-key="balance-row:'+h(f.path)+'" class="balance-row" data-balance-row data-category="'+f.path.split('.')[0]+'" data-search="'+h((group+' '+f.label+' '+f.path).toLocaleLowerCase('ru-RU'))+'"><span>'+h(f.label)+'</span><input type="number" inputmode="decimal" data-balance="'+h(f.path)+'" aria-label="'+h(f.group+' / '+f.label)+'" min="'+f.min/scale+'" max="'+f.max/scale+'" step="'+(f.integer&&scale===1?'1':'any')+'" value="'+value+'"></label>';}content+='</div></details>';}
  content+='<div class="line"></div><div class="row wrap">'+btn('Выгрузить JSON','balanceExport',{},'grow')+btn('Загрузить JSON','balanceImport',{},'ghost grow')+'</div><input id="balanceImportFile" type="file" accept="application/json,.json" hidden><div class="row wrap topgap">'+btn('Сбросить черновик','balanceRefresh',{},'ghost grow')+btn('Заводские параметры','balanceDefaults',{},'ghost grow')+'</div>'+btn('Применить для всех','balancePublish',{},'secondary full topgap')+'<p class="note danger" id="balanceError" role="status"></p>';
  openModal('Редактор баланса',content);$('balanceCategory').value='crops';filterBalanceRows();
 }
@@ -4782,7 +4868,7 @@ async function handleAction(action,p,source=feedbackOrigin){
   if(action==='showPanel'&&visitState){section='visit';showPanel();render(true);return;}
   if(action==='nav'){setSection(p.section);return;}
   if(action==='inventory'){setSection('inventory');return;}
-  if(action==='showPanel'){showPanel();return;}
+  if(action==='showPanel'){showPanel();render(true);return;}
   if(action==='hidePanel'){hidePanel();return;}
   if(action==='closeModal'){closeModal();return;}
   if(action==='marketSaveLimit'){marketSetLimits(p.id,$('marketItem').value,$('marketKeep').value);return;}
@@ -4843,9 +4929,9 @@ document.addEventListener('click',e=>{const button=e.target.closest('[data-actio
 document.addEventListener('pointerdown',()=>{lastPointer=performance.now();},true);
 document.addEventListener('input',e=>{if(e.target.id==='marketKeep'&&selectedId){marketEditors.set(selectedId,{item:$('marketItem').value,keep:e.target.value});}if(e.target.id==='farmNameInput'){$('farmNameCount').textContent=Array.from(FC.normalizeFarmName(e.target.value)).length;$('farmNameError').textContent='';e.target.removeAttribute('aria-invalid');}});
 document.addEventListener('change',e=>{
-  const t=e.target,a=t.dataset.change;feedbackOrigin=t;clearActionFeedback();if(t.id==='marketItem'&&selectedId){const b=state.buildings.find(b=>b.id===selectedId);marketEditors.set(selectedId,{item:t.value,keep:b?.settings.limits?.[t.value]??$('marketKeep')?.value??20});renderPanel();return;}if(!a||!state)return;
+  const t=e.target,a=t.dataset.change;feedbackOrigin=t;clearActionFeedback();if(t.id==='marketItem'&&selectedId){const b=state.buildings.find(b=>b.id===selectedId);uiDrafts.delete($('marketKeep'));marketEditors.set(selectedId,{item:t.value,keep:b?.settings.limits?.[t.value]??$('marketKeep')?.value??20});if($('marketKeep'))$('marketKeep').value=marketEditors.get(selectedId).keep;renderPanel();return;}if(!a||!state)return;
   if(a==='setting')perform('setting',{id:t.dataset.id,key:t.dataset.key,value:t.value});
-  else if(a==='specialize'){const id=t.dataset.id,value=t.value;render(true);showSpecialization(id,value);}
+  else if(a==='specialize'){const id=t.dataset.id,value=t.value;t.value=FC.buildingById(state,id)?.settings.specialization||'balanced';render(true);showSpecialization(id,value);}
   else if(a==='worker'){const w=state.workers.find(w=>w.id===t.dataset.id);if(w){const p={id:w.id,task:w.task,buildingId:w.buildingId,priority:w.priority};p[t.dataset.key]=t.dataset.key==='priority'?Number(t.value):t.dataset.key==='buildingId'?t.value||null:t.value;perform('worker',p);}}
   else if(a==='landFocus'){const [cx,cy]=t.value.split(',').map(Number);if(!FC.inWorld(cx,cy))return;selectedLand={cx,cy};world.focus(cx*16+8,cy*16+8);if(innerWidth<981)hidePanel();render(true);}
 });
