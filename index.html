@@ -2020,6 +2020,42 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
     }
     return available;
   }
+  function cleanPenBackdrop(image,name){
+    const match=/^(barn|coop|sheep)-L\d+-R([0-3])\.png$/.exec(name);
+    if(!match)return image;
+    const cfg=G.FarmBuildingSprites||BUILDING_SPRITE_DEFAULTS,placement=cfg.placements?.[name],def=G.FC.BUILDINGS[match[1]];
+    if(!placement||!def||![placement.x,placement.y,placement.width,placement.height].every(Number.isFinite))return image;
+    const width=image.naturalWidth,height=image.naturalHeight;
+    const art=document.createElement('canvas');art.width=width;art.height=height;
+    const c=art.getContext('2d',{willReadFrequently:true});c.drawImage(image,0,0);
+    const mask=document.createElement('canvas');mask.width=width;mask.height=height;
+    const g=mask.getContext('2d',{willReadFrequently:true}),mesh=new BuildingMesh(g,{x:0,y:0,rotation:Number(match[2])},def.w,def.h);
+    const x=.14,y=.14,W=def.w-.28,H=def.h-.28;
+    const project=(u,v,z)=>{const q=pt(...mesh.world([u,v,z]));return [(q.x-placement.x)*width/placement.width,(q.y-placement.y)*height/placement.height];};
+    const edge=(a,b)=>{
+      // Gaps only: do not include the wooden horizontal rails themselves.
+      for(const [lo,hi]of [[.7,4.4],[5.6,8.9],[10.1,11.8]]){
+        const p=[project(...a,lo),project(...b,lo),project(...b,hi),project(...a,hi)];
+        g.beginPath();g.moveTo(...p[0]);for(let i=1;i<4;i++)g.lineTo(...p[i]);g.closePath();g.fill();
+      }
+    };
+    g.fillStyle='#fff';edge([x,y+.025],[x+W,y+.025]);edge([x+.025,y],[x+.025,y+H]);edge([x+W-.025,y],[x+W-.025,y+H]);edge([x,y+H-.025],[x+W,y+H-.025]);
+    try{
+      const pixels=c.getImageData(0,0,width,height),zone=g.getImageData(0,0,width,height).data,data=pixels.data;
+      let removed=0;
+      for(let i=0;i<data.length;i+=4){
+        if(!zone[i+3]||!data[i+3])continue;
+        const r=data[i],green=data[i+1],blue=data[i+2];
+        // Pale neutral matte, not golden wood, grass, roof or dark outlines.
+        if(r>205&&green>195&&blue>175&&r-green<35&&green-blue<40){
+          data[i+3]=Math.round(data[i+3]*(1-zone[i+3]/255));removed++;
+        }
+      }
+      if(!removed)return image;
+      c.putImageData(pixels,0,0);art.naturalWidth=width;art.naturalHeight=height;
+      art._penMattePixels=removed;return art;
+    }catch(_){return image;}
+  }
   function requestBuildingImage(name,world){
     const cfg=G.FarmBuildingSprites||BUILDING_SPRITE_DEFAULTS;
     let record=BUILDING_IMAGES.get(name);
@@ -2038,8 +2074,9 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
     image.onload=()=>{
       if(record.status!=='loading')return;
       if(!image.naturalWidth||!image.naturalHeight){finish('missing');return;}
-      if(image.decode)image.decode().then(()=>finish('ready'),()=>finish('missing'));
-      else finish('ready');
+      const ready=()=>{record.image=cleanPenBackdrop(image,name);finish('ready');};
+      if(image.decode)image.decode().then(ready,()=>finish('missing'));
+      else ready();
     };
     image.onerror=()=>finish('missing');
     record.timer=setTimeout(()=>finish('missing'),15000);
