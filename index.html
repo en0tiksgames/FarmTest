@@ -1351,7 +1351,7 @@ const balance={spec,consume,get stamp(){return receivedBalance?current.revision+
 })(globalThis);
 
 </script>
-<script src="assets/buildings-config.js"></script>
+<script src="assets/buildings-config.js?v=baked-surfaces-1"></script>
 <script>
 /* Луговая долина · модуль мира. Canvas-мир: готовые спрайты загружаются из assets, модели и анимации рисуются кодом. */
 (function (G) {
@@ -2073,7 +2073,7 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
     const order=[rotation,(rotation+1)%4,(rotation+3)%4,(rotation+2)%4];
     const prefix=type+'-L';let available=null,bestView=4,bestLevel=0;
     for(const record of BUILDING_IMAGES.values()){
-      if(record.status!=='ready'||!record.name.startsWith(prefix))continue;
+      if(record.status!=='ready'||!record.name.startsWith(prefix)||!/-R[0-3]\.png$/.test(record.name))continue;
       const r=Number(record.name.at(-5)),n=Number(record.name.slice(prefix.length,-7)),view=order.indexOf(r);
       if(n>level&&!upper.includes(n))continue;
       if(view<bestView||view===bestView&&(bestLevel>level?n<bestLevel:n<=level&&n>bestLevel)){
@@ -2081,56 +2081,6 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
       }
     }
     return available;
-  }
-  function cleanPenBackdrop(image,name){
-    const match=/^(barn|coop|sheep)-L\d+-R([0-3])\.png$/.exec(name);
-    if(!match)return image;
-    const cfg=G.FarmBuildingSprites||BUILDING_SPRITE_DEFAULTS,placement=cfg.placements?.[name],def=G.FC.BUILDINGS[match[1]];
-    if(!placement||!def||![placement.x,placement.y,placement.width,placement.height].every(Number.isFinite))return image;
-    const width=image.naturalWidth,height=image.naturalHeight;
-    const art=document.createElement('canvas');art.width=width;art.height=height;
-    const c=art.getContext('2d',{willReadFrequently:true});c.drawImage(image,0,0);
-    const mask=document.createElement('canvas');mask.width=width;mask.height=height;
-    const g=mask.getContext('2d',{willReadFrequently:true}),mesh=new BuildingMesh(g,{x:0,y:0,rotation:Number(match[2])},def.w,def.h);
-    const x=.14,y=.14,W=def.w-.28,H=def.h-.28;
-    const project=(u,v,z)=>{const q=pt(...mesh.world([u,v,z]));return [(q.x-placement.x)*width/placement.width,(q.y-placement.y)*height/placement.height];};
-    const edge=(a,b)=>{
-      // Cover the whole fence plane. The color test preserves actual wood;
-      // geometric rail bands cannot be excluded because the matte overlaps them.
-      for(const [lo,hi]of [[.25,14.5]]){
-        const p=[project(...a,lo),project(...b,lo),project(...b,hi),project(...a,hi)];
-        g.beginPath();g.moveTo(...p[0]);for(let i=1;i<4;i++)g.lineTo(...p[i]);g.closePath();g.fill();
-      }
-    };
-    g.fillStyle='#fff';edge([x,y+.025],[x+W,y+.025]);edge([x+.025,y],[x+.025,y+H]);edge([x+W-.025,y],[x+W-.025,y+H]);edge([x,y+H-.025],[x+W,y+H-.025]);
-    // Some rear fence projections cross the shelter silhouette. Never let
-    // background cleanup touch its walls, gables or roof highlights.
-    const chicken=match[1]==='coop',cow=match[1]==='barn';
-    const sw=W*(chicken?.62:.67),sh=H*.44,bx=x+(chicken?.33:.095),by=y+.09,roofHeight=chicken?22:cow?29:25;
-    const shelter=new BuildingMesh(g,{x:0,y:0,rotation:Number(match[2])},def.w,def.h);
-    shelter.box(bx,by,sw,sh,chicken?8:2.6,roofHeight);
-    shelter.gableMaterial={bounds:{x:bx,y:by,w:sw,h:sh}};
-    shelter.roof(bx-.045,by-.045,sw+.09,sh+.09,roofHeight,chicken?7.5:cow?9.5:8.5);
-    g.globalCompositeOperation='destination-out';g.lineWidth=3;
-    for(const face of shelter.faces){
-      const vertices=face.v.map(v=>{const q=pt(...v);return [(q.x-placement.x)*width/placement.width,(q.y-placement.y)*height/placement.height];});
-      g.beginPath();g.moveTo(...vertices[0]);for(let i=1;i<vertices.length;i++)g.lineTo(...vertices[i]);g.closePath();g.fill();g.stroke();
-    }
-    try{
-      const pixels=c.getImageData(0,0,width,height),zone=g.getImageData(0,0,width,height).data,data=pixels.data;
-      let removed=0;
-      for(let i=0;i<data.length;i+=4){
-        if(!zone[i+3]||!data[i+3])continue;
-        const r=data[i],green=data[i+1],blue=data[i+2];
-        // Pale neutral matte, not golden wood, grass, roof or dark outlines.
-        if(r>150&&green>145&&blue>125&&r>=green&&r-green<30&&green-blue<40){
-          data[i+3]=Math.round(data[i+3]*(1-zone[i+3]/255));removed++;
-        }
-      }
-      if(!removed)return image;
-      c.putImageData(pixels,0,0);art.naturalWidth=width;art.naturalHeight=height;
-      art._penMattePixels=removed;return art;
-    }catch(_){return image;}
   }
   function requestBuildingImage(name,world){
     const cfg=G.FarmBuildingSprites||BUILDING_SPRITE_DEFAULTS;
@@ -2150,13 +2100,13 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
     image.onload=()=>{
       if(record.status!=='loading')return;
       if(!image.naturalWidth||!image.naturalHeight){finish('missing');return;}
-      const ready=()=>{record.image=world._trimSpriteSurface(cleanPenBackdrop(image,name),name);finish('ready');};
+      const ready=()=>{record.image=image;finish('ready');};
       if(image.decode)image.decode().then(ready,()=>finish('missing'));
       else ready();
     };
     image.onerror=()=>finish('missing');
     record.timer=setTimeout(()=>finish('missing'),15000);
-    image.src=(cfg.folder||'assets/buildings').replace(/\/$/,'')+'/'+name;
+    image.src=(cfg.folder||'assets/buildings').replace(/\/$/,'')+'/'+name+(cfg.assetVersion?'?v='+encodeURIComponent(cfg.assetVersion):'');
     return record;
   }
   let buildingImageVersion=0;
@@ -2566,7 +2516,11 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
         await Promise.race([deadline,Promise.all([...unique.values()].map(async b=>{
           while(waiting){
             const record=optionalBuildingImage(b,this,false);
-            if(record?.status!=='loading')return;
+            if(record?.status!=='loading'){
+              const layers=G.FarmBuildingSprites?.layers?.[record?.name];
+              if(layers)await Promise.all([layers.shadow,layers.animals?.mask].filter(Boolean).map(name=>requestBuildingImage(name,this).settled));
+              return;
+            }
             await record.settled;
           }
         }))]);
@@ -2923,62 +2877,12 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
       }return parts;
     }
     _structureShadow(c,b){
-      // One union silhouette avoids dark seams where roof/wall/rail shadows overlap.
-      // Cache in world pixels; zooming never rebuilds the geometry or shadow.
-      this._structureShadows ||= new Map();
-      const key=[b.type,b.level||1,b.rotation||0].join('|');
-      let shadow=this._structureShadows.get(key);
-      if(!shadow){
-        let mesh;this._captureModel=true;
-        try{mesh=this._modelAtOrigin(c,{...b,x:0,y:0});}finally{this._captureModel=false;}
-        const shapes=mesh.faces.filter(f=>!f.terrainSurface&&!f.draw&&f.color).map(f=>f.v.map(([x,y,z])=>{const p=pt(x,y);return {x:p.x+z*.55,y:p.y+z*.24};}));
-        const points=shapes.flat(),left=Math.floor(Math.min(...points.map(p=>p.x)))-2,top=Math.floor(Math.min(...points.map(p=>p.y)))-2;
-        const width=Math.ceil(Math.max(...points.map(p=>p.x)))-left+2,height=Math.ceil(Math.max(...points.map(p=>p.y)))-top+2;
-        const art=document.createElement('canvas'),resolution=3;art.width=width*resolution;art.height=height*resolution;
-        const g=art.getContext('2d');g.scale(resolution,resolution);g.translate(-left,-top);g.fillStyle='#23422c';g.beginPath();
-        // Give all polygons the same winding so overlapping faces form a union.
-        for(const shape of shapes){let area=0;for(let i=0;i<shape.length;i++){const a=shape[i],b=shape[(i+1)%shape.length];area+=a.x*b.y-b.x*a.y;}if(area<0)shape.reverse();g.moveTo(shape[0].x,shape[0].y);for(let i=1;i<shape.length;i++)g.lineTo(shape[i].x,shape[i].y);g.closePath();}g.fill();
-        const softened=document.createElement('canvas');softened.width=art.width;softened.height=art.height;const soft=softened.getContext('2d');soft.filter='blur('+(.6*resolution)+'px)';soft.drawImage(art,0,0);
-        shadow={art:softened,left,top,width,height};this._structureShadows.set(key,shadow);
-        if(this._structureShadows.size>48)this._structureShadows.delete(this._structureShadows.keys().next().value);
-      }
-      const origin=pt(b.x,b.y);c.save();c.globalAlpha*=.19;c.drawImage(shadow.art,origin.x+shadow.left,origin.y+shadow.top,shadow.width,shadow.height);c.restore();
+      const record=optionalBuildingImage(b,this);if(record?.status!=='ready')return;
+      const name=G.FarmBuildingSprites?.layers?.[record.name]?.shadow;if(!name)return;
+      const shadow=requestBuildingImage(name,this);if(shadow.status!=='ready')return;
+      const q=this._spriteRect(b,record);c.drawImage(shadow.image,q.x,q.y,q.width,q.height);
     }
-    _trimSpriteSurface(image,name){
-      const match=/^(barn|coop|sheep|quarry|fishery)-L(\d+)-R([0-3])\.png$/.exec(name);
-      if(!match)return image;
-      const cfg=G.FarmBuildingSprites||{},placement=cfg.placements?.[name];
-      if(!placement)return image;
-      const width=image.naturalWidth,height=image.naturalHeight;
-      let mesh;this._captureModel=true;
-      try{mesh=this._modelAtOrigin(this.ctx,{id:'surface',x:0,y:0,type:match[1],level:Number(match[2]),rotation:Number(match[3]),queue:[],output:{}});}finally{this._captureModel=false;}
-      if(!mesh)return image;
-      // Quarry PNGs use an older authored layout; trim their pedestal by the
-      // source silhouette rather than applying the newer fallback model to them.
-      if(match[1]==='quarry'){
-        const outlines=[
-          [[137,158],[207,120],[240,119],[274,155],[260,173],[318,193],[371,233],[424,283],[323,351],[287,332],[263,335],[235,322],[216,331],[151,301],[110,284],[87,256],[87,238],[111,226],[144,210],[144,160]],
-          [[86,272],[135,239],[133,215],[156,202],[186,187],[202,176],[217,176],[229,162],[256,143],[281,154],[303,143],[329,158],[358,145],[363,143],[414,170],[463,181],[458,184],[458,232],[398,260],[332,298],[252,316],[195,302],[146,289]],
-          [[87,237],[91,216],[187,155],[207,144],[274,180],[296,183],[307,181],[352,207],[354,225],[373,222],[401,236],[398,253],[423,265],[423,284],[400,299],[367,291],[369,332],[305,364],[244,331],[244,282],[239,278],[218,286],[182,300],[148,282],[151,272],[130,269],[109,259],[109,246]],
-          [[48,233],[82,199],[129,216],[133,190],[174,163],[238,145],[307,129],[315,128],[350,154],[426,190],[392,222],[380,235],[376,251],[359,259],[360,270],[325,288],[295,286],[283,303],[258,318],[245,310],[207,327],[185,319],[174,321],[147,329],[119,316],[91,305],[54,287]]
-        ];
-        const art=document.createElement('canvas');art.width=width;art.height=height;
-        const c=art.getContext('2d');c.beginPath();outlines[Number(match[3])].forEach((p,i)=>c[i?'lineTo':'moveTo'](p[0]*width/512,p[1]*height/512));c.closePath();c.clip();c.drawImage(image,0,0);
-        art.naturalWidth=width;art.naturalHeight=height;return art;
-      }
-      const mask=document.createElement('canvas');mask.width=width;mask.height=height;
-      const g=mask.getContext('2d'),project=v=>{const q=pt(...v);return [(q.x-placement.x)*width/placement.width,(q.y-placement.y)*height/placement.height];};
-      const fill=(face,strokeOnly=false)=>{const p=face.v.map(project);g.beginPath();g.moveTo(...p[0]);for(let i=1;i<p.length;i++)g.lineTo(...p[i]);g.closePath();if(!strokeOnly)g.fill();g.stroke();};
-      g.fillStyle=g.strokeStyle='#fff';g.lineWidth=2;
-      // Strip baked ground shadows too; only actual structure faces survive.
-      g.fillRect(0,0,width,height);
-      g.globalCompositeOperation='destination-out';g.lineWidth=2;
-      for(const f of mesh.faces)if(!f.terrainSurface&&!f.draw)fill(f,match[1]==='fishery'&&/^#[0-9a-f]{8}$/i.test(f.color||'')&&f.color.slice(-2)!=='ff');
-      const art=document.createElement('canvas');art.width=width;art.height=height;
-      const c=art.getContext('2d');c.drawImage(image,0,0);c.globalCompositeOperation='destination-out';c.drawImage(mask,0,0);c.globalCompositeOperation='source-over';
-      art.naturalWidth=width;art.naturalHeight=height;return art;
-    }
-    _buildingSprite(c,b,record,ghost){
+    _spriteRect(b,record){
       const cfg=G.FarmBuildingSprites||{},d=G.FC.BUILDINGS[b.type]||{},
         base=cfg.placements?.[record.name],custom=cfg.overrides?.[b.type]||{},view=cfg.overrides?.[record.name]||{},
         placement={...(base||{}),...custom,...view},origin=pt(b.x,b.y);
@@ -2993,8 +2897,11 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
       const pivot=pt(b.x+(b.w||d.w||1)/2,b.y+(b.h||d.h||1)/2);
       const x=pivot.x+(origin.x+dx-pivot.x)*scale+(Number(placement.offsetX)||0),
         y=pivot.y+(origin.y+dy-pivot.y)*scale+(Number(placement.offsetY)||0);
+      return {x,y,width:width*scale,height:height*scale};
+    }
+    _buildingSprite(c,b,record,ghost){
+      const cfg=G.FarmBuildingSprites||{},d=G.FC.BUILDINGS[b.type]||{},q=this._spriteRect(b,record),{x,y}=q,sw=q.width,sh=q.height;
       if(b.id===this.selectedId&&!ghost)tile(c,b.x-.09,b.y-.09,(b.w||d.w||1)+.18,(b.h||d.h||1)+.18,'#faf2a93d','#faee90',2.8);
-      const sw=width*scale,sh=height*scale;
       // Rotor plane lies behind the tower in the rear views, in front in the front views.
       const rotor=b.type==='mill'&&record.name.match(/^mill-L1-R([0-3])\.png$/);
       const rear=rotor&&[1,2].includes(Number(rotor[1]));
@@ -3011,7 +2918,7 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
 
       // Compose animals separately; foreground fence and shelter faces
       // remove only the animated pixels that are geometrically behind them.
-      if(cfg.animals!==false&&['barn','coop','sheep'].includes(b.type))this._livestockSpriteLayer(c,b,d);
+      if(cfg.animals!==false&&['barn','coop','sheep'].includes(b.type))this._livestockSpriteLayer(c,b,d,record);
     }
     _chimneyPuffs(c,x,y,pixelScale,b){
       // A single tiny cached texture; no gradient allocation or particle array per frame.
@@ -3389,7 +3296,7 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
       if(!this._modelCache)this._modelCache=new Map();
       const rasterScale=Math.min(5,Math.max(1,Math.ceil(this.camera.zoom*this.dpr)));
       const signature=[b.type,b.level,b.rotation,this.theme,rasterScale].join('|');
-      const cached=this._captureModel?null:this._modelCache.get(signature);
+      const cached=this._modelCache.get(signature);
       if(cached){this._modelCache.delete(signature);this._modelCache.set(signature,cached);cached.mesh.c=c;cached.mesh.flush();this._modelEffects(c,b,cached.mesh);return;}
       const d=G.FC.BUILDINGS[b.type],w=d.w,h=d.h,L=b.level||1,type=b.type,m=new BuildingMesh(c,b,w,h),x=.14,y=.14,W=w-(type==='sawmill'?.62:.28),H=h-(type==='complex'?.70:['jam','loom','cheese'].includes(type)?.56:.28),z=38+Math.min(L-1,8)*.45;
       m.surfaceType=type;m.retained=true;m.rasterScale=rasterScale;
@@ -4100,7 +4007,6 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
         });
       }
 
-      if(this._captureModel)return m;
       m.faces=m.faces.filter(f=>!f.terrainSurface);m.flush();
       if(m.retained){
         const pixels=m._displayList.reduce((sum,p)=>sum+(p.art?p.art.width*p.art.height:0),0);
@@ -4129,57 +4035,24 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
         c.restore();
       }
     }
-    _livestockSpriteLayer(c,b,d){
-      // The PNG remains intact. Only animated pixels are masked by the same
-      // 3D fence/wall geometry that produced the original building exports.
+    _livestockSpriteLayer(c,b,d,record){
+      const data=G.FarmBuildingSprites?.layers?.[record.name]?.animals;if(!data)return;
+      const mask=requestBuildingImage(data.mask,this);if(mask.status!=='ready')return;
       this._livestockLayers ||= new Map();
-      const key=[b.type,b.rotation||0,d.w,d.h].join('|');
-      let layer=this._livestockLayers.get(key);
+      let layer=this._livestockLayers.get(record.name);
       if(!layer){
-        const rotation=b.rotation||0,local={...b,x:0,y:0},m=new BuildingMesh(c,local,d.w,d.h);
-        const x=.14,y=.14,W=d.w-.28,H=d.h-.28,chicken=b.type==='coop',cow=b.type==='barn';
-        const points=[];
-        for(let i=0;i<(chicken?3:2);i++){
-          const ax=x+W*(.17+i*(chicken?.22:.32)),ay=y+H*(.78+(i%2)*.06);
-          const q=pt(...m.world([ax,ay,1]));points.push(q);
-        }
-        const sizes=chicken?[8,11]:cow?[16,24]:[12,18];
-        const left=Math.floor(Math.min(...points.map(p=>p.x))-sizes[0]-2),top=Math.floor(Math.min(...points.map(p=>p.y))-sizes[1]-3);
-        const right=Math.ceil(Math.max(...points.map(p=>p.x))+sizes[0]+2),bottom=Math.ceil(Math.max(...points.map(p=>p.y))+7);
-        const art=document.createElement('canvas'),resolution=3;
-        art.width=(right-left)*resolution;art.height=(bottom-top)*resolution;
-        const g=art.getContext('2d');m.c=g;
-        // Shelters hide animals only where a wall or roof is actually in front.
-        const sw=W*(chicken?.62:.67),sh=H*.44,bx=x+(chicken?.33:.095),by=y+.09,height=chicken?22:cow?29:25;
-        m.box(bx,by,sw,sh,chicken?8:2.6,height);
-        m.gableMaterial={bounds:{x:bx,y:by,w:sw,h:sh}};
-        m.roof(bx-.045,by-.045,sw+.09,sh+.09,height,chicken?7.5:cow?9.5:8.5);
-        const post=(px,py,high=12)=>{m.box(px-.023,py-.023,.046,.046,.5,high);m.box(px-.032,py-.032,.064,.064,high,high+.7);};
-        for(const yy of [y+.025,y+H-.025])for(let i=0;i<=8;i++){
-          if(yy>y+H/2&&i>=3&&i<=5)continue;
-          post(x+W*i/8,yy);
-        }
-        for(const xx of [x+.025,x+W-.025])for(let j=1;j<5;j++)post(xx,y+H*j/5);
-        const rail=(a,b,xx,yy,z)=>m.face([[a,b,z],[xx,yy,z],[xx,yy,z+1],[a,b,z+1]],null,null,0,true);
-        for(const z of [4.5,9]){
-          rail(x,y+.025,x+W,y+.025,z);rail(x,y+.025,x,y+H-.025,z);rail(x+W,y+.025,x+W,y+H-.025,z);
-          rail(x,y+H-.025,x+W*.34,y+H-.025,z);rail(x+W*.67,y+H-.025,x+W,y+H-.025,z);
-        }
-        for(const xx of [x+W*.34,x+W*.67])m.box(xx-.027,y+H-.05,.054,.054,.6,14);
-        m.faces=m.faces.filter(f=>points.some(p=>f.maxX>=p.x-sizes[0]&&f.minX<=p.x+sizes[0]&&f.maxY>=p.y-sizes[1]&&f.minY<=p.y+5));
-        for(const f of m.faces)f.draw=()=>{
-          g.save();g.globalCompositeOperation='destination-out';g.fillStyle='#000';g.fillRect(left,top,right-left,bottom-top);g.restore();
-        };
-        for(let i=0;i<points.length;i++)m.sprite(x+W*(.17+i*(chicken?.22:.32)),y+H*(.78+(i%2)*.06),1,sizes[0],sizes[1],()=>this._animal(g,b.type,{x:0,y:0},i+rotation));
-        m.prepareVector=true;
-        layer={art,g,m,left,top,resolution};
-        if(this._livestockLayers.size>=16)this._livestockLayers.delete(this._livestockLayers.keys().next().value);
-        this._livestockLayers.set(key,layer);
+        const art=document.createElement('canvas');art.width=mask.image.naturalWidth;art.height=mask.image.naturalHeight/data.poses.length;
+        layer={art,g:art.getContext('2d')};this._livestockLayers.set(record.name,layer);
+        if(this._livestockLayers.size>16)this._livestockLayers.delete(this._livestockLayers.keys().next().value);
       }
-      const {art,g,m,left,top,resolution}=layer;
-      g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,art.width,art.height);
-      g.setTransform(resolution,0,0,resolution,-left*resolution,-top*resolution);m.flush();
-      const origin=pt(b.x,b.y);c.drawImage(art,origin.x+left,origin.y+top,art.width/resolution,art.height/resolution);
+      const {art,g}=layer,rx=art.width/data.width,ry=art.height/data.height,origin=pt(b.x,b.y);
+      // The mask controls depth only. Existing animal frames/timing are unchanged.
+      for(let i=0;i<data.poses.length;i++){
+        const pose=data.poses[i];g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,art.width,art.height);
+        g.globalCompositeOperation='source-over';g.setTransform(rx,0,0,ry,-data.left*rx,-data.top*ry);this._animal(g,b.type,pose,pose.index);
+        g.setTransform(1,0,0,1,0,0);g.globalCompositeOperation='destination-in';g.drawImage(mask.image,0,i*art.height,art.width,art.height,0,0,art.width,art.height);g.globalCompositeOperation='source-over';
+        c.drawImage(art,origin.x+data.left,origin.y+data.top,data.width,data.height);
+      }
     }
     _animal(c,type,p,i){
       const atlas=livestockAtlases[type];if(!atlas?.image?.naturalWidth)return;
