@@ -2382,6 +2382,7 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
       // trees and buildings regardless of the pond footprint/depth value.
       // Keep all non-water objects depth-sorted as before.
       for(const o of objects)if(o.kind==='nature'&&o.data.type==='pond')this._nature(c,o.data,s.seed);
+      for(const b of buildings)if(['barn','coop','sheep'].includes(b.type))this._structureShadow(c,b);
       // Plots and their badges belong below people; tall scenery keeps depth sorting.
       for(const o of objects)if(o.kind==='building'&&o.data.type==='plot'){this._building(c,o.data);this._watch(o.data);}
       for(const b of buildings)if(b.type==='plot')this._status(c,b,pal);
@@ -2921,6 +2922,28 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
         parts.push({kind:'orchardTree',data:{x:q[0],y:q[1],n:hash(Math.floor(q[0]*11),Math.floor(q[1]*11),(this._s?.seed||0)+119),scale:.70+Math.min(b.level||1,8)*.012+(i===j?.02:0)},depth:q[0]+q[1]+.2});
       }return parts;
     }
+    _structureShadow(c,b){
+      // One union silhouette avoids dark seams where roof/wall/rail shadows overlap.
+      // Cache in world pixels; zooming never rebuilds the geometry or shadow.
+      this._structureShadows ||= new Map();
+      const key=[b.type,b.level||1,b.rotation||0].join('|');
+      let shadow=this._structureShadows.get(key);
+      if(!shadow){
+        let mesh;this._captureModel=true;
+        try{mesh=this._modelAtOrigin(c,{...b,x:0,y:0});}finally{this._captureModel=false;}
+        const shapes=mesh.faces.filter(f=>!f.terrainSurface&&!f.draw&&f.color).map(f=>f.v.map(([x,y,z])=>{const p=pt(x,y);return {x:p.x+z*.55,y:p.y+z*.24};}));
+        const points=shapes.flat(),left=Math.floor(Math.min(...points.map(p=>p.x)))-2,top=Math.floor(Math.min(...points.map(p=>p.y)))-2;
+        const width=Math.ceil(Math.max(...points.map(p=>p.x)))-left+2,height=Math.ceil(Math.max(...points.map(p=>p.y)))-top+2;
+        const art=document.createElement('canvas'),resolution=3;art.width=width*resolution;art.height=height*resolution;
+        const g=art.getContext('2d');g.scale(resolution,resolution);g.translate(-left,-top);g.fillStyle='#23422c';g.beginPath();
+        // Give all polygons the same winding so overlapping faces form a union.
+        for(const shape of shapes){let area=0;for(let i=0;i<shape.length;i++){const a=shape[i],b=shape[(i+1)%shape.length];area+=a.x*b.y-b.x*a.y;}if(area<0)shape.reverse();g.moveTo(shape[0].x,shape[0].y);for(let i=1;i<shape.length;i++)g.lineTo(shape[i].x,shape[i].y);g.closePath();}g.fill();
+        const softened=document.createElement('canvas');softened.width=art.width;softened.height=art.height;const soft=softened.getContext('2d');soft.filter='blur('+(.6*resolution)+'px)';soft.drawImage(art,0,0);
+        shadow={art:softened,left,top,width,height};this._structureShadows.set(key,shadow);
+        if(this._structureShadows.size>48)this._structureShadows.delete(this._structureShadows.keys().next().value);
+      }
+      const origin=pt(b.x,b.y);c.save();c.globalAlpha*=.19;c.drawImage(shadow.art,origin.x+shadow.left,origin.y+shadow.top,shadow.width,shadow.height);c.restore();
+    }
     _trimSpriteSurface(image,name){
       const match=/^(barn|coop|sheep|quarry|fishery)-L(\d+)-R([0-3])\.png$/.exec(name);
       if(!match)return image;
@@ -2947,7 +2970,8 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
       const g=mask.getContext('2d'),project=v=>{const q=pt(...v);return [(q.x-placement.x)*width/placement.width,(q.y-placement.y)*height/placement.height];};
       const fill=(face,strokeOnly=false)=>{const p=face.v.map(project);g.beginPath();g.moveTo(...p[0]);for(let i=1;i<p.length;i++)g.lineTo(...p[i]);g.closePath();if(!strokeOnly)g.fill();g.stroke();};
       g.fillStyle=g.strokeStyle='#fff';g.lineWidth=2;
-      if(match[1]==='fishery')g.fillRect(0,0,width,height);else for(const f of mesh.faces)if(f.terrainSurface)fill(f);
+      // Strip baked ground shadows too; only actual structure faces survive.
+      g.fillRect(0,0,width,height);
       g.globalCompositeOperation='destination-out';g.lineWidth=2;
       for(const f of mesh.faces)if(!f.terrainSurface&&!f.draw)fill(f,match[1]==='fishery'&&/^#[0-9a-f]{8}$/i.test(f.color||'')&&f.color.slice(-2)!=='ff');
       const art=document.createElement('canvas');art.width=width;art.height=height;
@@ -3051,7 +3075,7 @@ function roadImage(layout,x,y,w,h,done,rasterScale=1.5){
       }
       const d=G.FC.BUILDINGS[b.type]||{},w=b.w||d.w||1,h=b.h||d.h||1,x=b.x,y=b.y,p=pt(x+w/2,y+h/2),lev=b.level||1;
       if(b.id===this.selectedId&&!ghost){tile(c,x-.09,y-.09,w+.18,h+.18,'#faf2a93d','#faee90',2.8);}
-      if(d.category!=='decoration'&&!['plot','orchard','fishery','quarry','well','mill'].includes(b.type))tile(c,x+.04,y+.06,w-.08,h-.08,'#183c281a');
+      if(d.category!=='decoration'&&!['plot','orchard','fishery','quarry','well','mill','barn','coop','sheep'].includes(b.type))tile(c,x+.04,y+.06,w-.08,h-.08,'#183c281a');
       if(b.type==='well'||b.type==='mill')ellipse(c,p.x+1,p.y+1,b.type==='well'?12:18,b.type==='well'?4:6,'#183c2825');
       if(d.category==='decoration'&&['sign','lamp'].includes(b.type)){
         ellipse(c,p.x+2,p.y+2,3,3*.27,'#193c2828');
